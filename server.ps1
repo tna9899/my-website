@@ -1,7 +1,7 @@
 # =======================================================
-# MÁY CHỦ NỘI BỘ SIÊU NHẸ CHO TRANG WEB KỶ NIỆM
-# Tự động phục vụ web & Ghi log trực tiếp vào folder anhuyen
-# Tự động chọn cổng khả dụng, không bao giờ bị lỗi cổng bận
+# MAY CHU NOI BO SIEU NHE CHO TRANG WEB KY NIEM
+# Tu dong phuc vu web & Dong bo anh thoi gian thuc 2 chieu
+# Tu dong chon cong kha dung & Ghi nhan cong cho Cloudflare Tunnel
 # =======================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -11,23 +11,39 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $folder = Split-Path -Parent $MyInvocation.MyCommand.Definition
 if (-not $folder) { $folder = "D:\TNA\Project\anhuyen" }
 $logFile = Join-Path $folder "user_activity.log"
+$memoriesFile = Join-Path $folder "memories.json"
+$backupFile = Join-Path $folder "memories.backup.json"
+$portFile = Join-Path $folder "server_port.txt"
 
-# Kiểm tra nếu máy chủ đã chạy sẵn từ trước trên cổng 8080
+# Theo doi phien ban du lieu may chu
+$global:serverVersion = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+if (Test-Path $memoriesFile) {
+    try {
+        $global:serverVersion = [System.IO.File]::GetLastWriteTimeUtc($memoriesFile).Ticks
+    } catch {}
+}
+
+# Kiem tra neu may chu da chay san tu truoc
 try {
-    $existing = Invoke-WebRequest -Uri "http://localhost:8080/" -TimeoutSec 1 -UseBasicParsing -ErrorAction Stop
+    $existingPort = 8080
+    if (Test-Path $portFile) {
+        $savedPort = (Get-Content $portFile -Raw).Trim()
+        if ($savedPort -match '^\d+$') { $existingPort = [int]$savedPort }
+    }
+    $existing = Invoke-WebRequest -Uri "http://localhost:$existingPort/api/version" -TimeoutSec 1 -UseBasicParsing -ErrorAction Stop
     if ($existing.StatusCode -eq 200) {
         Write-Host "=======================================================" -ForegroundColor Cyan
-        Write-Host "   TRANG WEB KỶ NIỆM: NGỌC ÁNH - TÚ UYÊN" -ForegroundColor Yellow
-        Write-Host "   Máy chủ đang chạy sẵn tại: http://localhost:8080" -ForegroundColor Green
-        Write-Host "   Đang mở trình duyệt cho bạn..." -ForegroundColor Cyan
+        Write-Host "   TRANG WEB KY NIEM: NGOC ANH - TU UYEN" -ForegroundColor Yellow
+        Write-Host "   May chu dang chay san tai: http://localhost:$existingPort" -ForegroundColor Green
+        Write-Host "   Dang mo trinh duyet cho ban..." -ForegroundColor Cyan
         Write-Host "=======================================================" -ForegroundColor Cyan
-        Start-Process "http://localhost:8080"
+        Start-Process "http://localhost:$existingPort"
         Start-Sleep -Seconds 2
         exit
     }
 } catch {}
 
-# Tìm cổng khả dụng từ 8080 đến 8089
+# Tim cong kha dung tu 8080 den 8089
 $portsToTry = @(8080, 8081, 8082, 8083, 8084, 8085, 8086, 8087, 8088, 8089)
 $listener = $null
 $port = 8080
@@ -50,19 +66,23 @@ foreach ($p in $portsToTry) {
 }
 
 if (-not $started) {
-    Write-Host "Lỗi: Không tìm thấy cổng trống từ 8080 đến 8089." -ForegroundColor Red
+    Write-Host "Loi: Khong tim thay cong trong tu 8080 den 8089." -ForegroundColor Red
     pause
     exit
 }
 
-Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "   TRANG WEB KỶ NIỆM: NGỌC ÁNH - TÚ UYÊN" -ForegroundColor Yellow
-Write-Host "   Máy chủ đang chạy tại: http://localhost:$port" -ForegroundColor Green
-Write-Host "   Mọi log thao tác sẽ tự động lưu vào: $logFile" -ForegroundColor Green
-Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "Nhấn Ctrl + C để dừng máy chủ bất kỳ lúc nào.`n"
+# Ghi nhan cong dang chay de start_tunnel.ps1 dung chinh xac
+Set-Content -Path $portFile -Value "$port" -Encoding UTF8
 
-# Tự động mở trình duyệt
+Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host "   TRANG WEB KY NIEM: NGOC ANH - TU UYEN" -ForegroundColor Yellow
+Write-Host "   May chu dang chay tai: http://localhost:$port" -ForegroundColor Green
+Write-Host "   Moi log thao tac se tu dong luu vao: $logFile" -ForegroundColor Green
+Write-Host "   Da kich hoat dong bo 2 chieu (May tinh <-> Dien thoai)" -ForegroundColor Green
+Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host "Nhan Ctrl + C de dung may chu bat ky luc nao.`n"
+
+# Tu dong mo trinh duyet
 Start-Process "http://localhost:$port"
 
 while ($listener.IsListening) {
@@ -71,18 +91,50 @@ while ($listener.IsListening) {
         $request = $context.Request
         $response = $context.Response
 
-        # Cho phép CORS
+        # Cho phep CORS toan dien cho may tinh & dien thoai (Cloudflare Tunnel)
         $response.Headers.Add("Access-Control-Allow-Origin", "*")
         $response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
+        $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Pragma, Authorization, X-Requested-With")
+        $response.Headers.Add("Access-Control-Max-Age", "86400")
 
         if ($request.HttpMethod -eq "OPTIONS") {
             $response.StatusCode = 200
+            $response.ContentLength64 = 0
             $response.Close()
             continue
         }
 
-        # XỬ LÝ API GHI LOG TỪ TRÌNH DUYỆT
+        # 1. XU LY API KIEM TRA PHIEN BAN SIEU NHE (/api/version) - Danh cho auto-sync ~30 bytes
+        if ($request.Url.AbsolutePath -eq "/api/version" -and $request.HttpMethod -eq "GET") {
+            $count = 0
+            if (Test-Path $memoriesFile) {
+                try {
+                    $existingJson = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+                    $parsed = ConvertFrom-Json $existingJson -ErrorAction SilentlyContinue
+                    if ($parsed -is [System.Array]) { $count = $parsed.Count }
+                    elseif ($parsed) { $count = 1 }
+                } catch {}
+            }
+            $vObj = @{
+                status = "ok"
+                version = [string]$global:serverVersion
+                count = $count
+            }
+            $vJson = ConvertTo-Json $vObj -Compress
+            $vBuffer = [System.Text.Encoding]::UTF8.GetBytes($vJson)
+
+            $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+            $response.Headers.Add("Pragma", "no-cache")
+            $response.Headers.Add("Expires", "0")
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.StatusCode = 200
+            $response.ContentLength64 = $vBuffer.Length
+            $response.OutputStream.Write($vBuffer, 0, $vBuffer.Length)
+            $response.Close()
+            continue
+        }
+
+        # 2. XU LY API GHI LOG TU TRINH DUYET (/api/log)
         if ($request.Url.AbsolutePath -eq "/api/log" -and $request.HttpMethod -eq "POST") {
             $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
             $logContent = $reader.ReadToEnd()
@@ -95,14 +147,14 @@ while ($listener.IsListening) {
 
             $response.StatusCode = 200
             $buffer = [System.Text.Encoding]::UTF8.GetBytes('{"status":"ok"}')
-            $response.ContentType = "application/json"
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.ContentLength64 = $buffer.Length
             $response.OutputStream.Write($buffer, 0, $buffer.Length)
             $response.Close()
             continue
         }
 
-        # XỬ LÝ API KỶ NIỆM (ĐỒNG BỘ DỮ LIỆU ĐIỆN THOẠI & MÁY TÍNH)
-        $memoriesFile = Join-Path $folder "memories.json"
+        # 3. XU LY API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
         if ($request.Url.AbsolutePath -eq "/api/memories") {
             if ($request.HttpMethod -eq "GET") {
                 $content = "[]"
@@ -110,30 +162,163 @@ while ($listener.IsListening) {
                     $content = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
                 }
                 $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
+
+                # Chong cache tuyet doi de dien thoai luon nhan anh moi nhat
+                $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                $response.Headers.Add("Pragma", "no-cache")
+                $response.Headers.Add("Expires", "0")
                 $response.StatusCode = 200
                 $response.ContentType = "application/json; charset=utf-8"
+                $response.ContentLength64 = $buffer.Length
                 $response.OutputStream.Write($buffer, 0, $buffer.Length)
                 $response.Close()
                 continue
             }
+
             if ($request.HttpMethod -eq "POST") {
                 $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
                 $body = $reader.ReadToEnd()
                 $reader.Close()
-                if ($body) {
-                    [System.IO.File]::WriteAllText($memoriesFile, $body, [System.Text.Encoding]::UTF8)
-                    Write-Host '[MEMORIES] Da dong bo du lieu ky niem thanh cong' -ForegroundColor Green
+
+                if ([string]::IsNullOrWhiteSpace($body)) {
+                    $response.StatusCode = 400
+                    $errBuf = [System.Text.Encoding]::UTF8.GetBytes('{"status":"error","message":"Du lieu trong"}')
+                    $response.ContentLength64 = $errBuf.Length
+                    $response.OutputStream.Write($errBuf, 0, $errBuf.Length)
+                    $response.Close()
+                    continue
                 }
-                $response.StatusCode = 200
-                $buffer = [System.Text.Encoding]::UTF8.GetBytes('{"status":"ok"}')
-                $response.ContentType = "application/json; charset=utf-8"
-                $response.OutputStream.Write($buffer, 0, $buffer.Length)
-                $response.Close()
-                continue
+
+                try {
+                    $incomingData = ConvertFrom-Json $body -ErrorAction Stop
+                    
+                    $incomingMemories = @()
+                    $deletedIds = @()
+
+                    if ($incomingData -is [PSCustomObject] -and $incomingData.PSObject.Properties['memories']) {
+                        if ($incomingData.memories -is [System.Array]) {
+                            $incomingMemories = $incomingData.memories
+                        } elseif ($incomingData.memories) {
+                            $incomingMemories = @($incomingData.memories)
+                        }
+                        if ($incomingData.PSObject.Properties['deletedIds'] -and $incomingData.deletedIds) {
+                            $deletedIds = @($incomingData.deletedIds | ForEach-Object { [string]$_ })
+                        }
+                    } elseif ($incomingData -is [System.Array]) {
+                        $incomingMemories = $incomingData
+                    } elseif ($incomingData) {
+                        $incomingMemories = @($incomingData)
+                    }
+
+                    # Doc du lieu server hien co
+                    $currentMemories = @()
+                    if (Test-Path $memoriesFile) {
+                        try {
+                            $currRaw = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+                            $currParsed = ConvertFrom-Json $currRaw -ErrorAction SilentlyContinue
+                            if ($currParsed -is [System.Array]) { $currentMemories = $currParsed }
+                            elseif ($currParsed) { $currentMemories = @($currParsed) }
+                        } catch {}
+                    }
+
+                    # Tu dong sao luu du phong truoc khi ghi de
+                    if (Test-Path $memoriesFile) {
+                        Copy-Item -Path $memoriesFile -Destination $backupFile -Force -ErrorAction SilentlyContinue
+                    }
+
+                    # Hashtable luu tru theo ID
+                    $memoryMap = [System.Collections.Specialized.OrderedDictionary]::new()
+                    foreach ($m in $currentMemories) {
+                        if ($m -and $m.id) {
+                            $idStr = [string]$m.id
+                            if ($deletedIds -notcontains $idStr) {
+                                $memoryMap[$idStr] = $m
+                            }
+                        }
+                    }
+
+                    # Merge thong minh danh sach gui len
+                    foreach ($inItem in $incomingMemories) {
+                        if (-not $inItem -or -not $inItem.id) { continue }
+                        $idStr = [string]$inItem.id
+                        if ($deletedIds -contains $idStr) { continue }
+
+                        if ($memoryMap.Contains($idStr)) {
+                            $existing = $memoryMap[$idStr]
+                            
+                            # Hop nhat anh (union khong trung lap)
+                            $mergedImgs = [System.Collections.Generic.List[string]]::new()
+                            $seenImgs = [System.Collections.Generic.HashSet[string]]::new()
+
+                            if ($existing.images) {
+                                foreach ($img in $existing.images) {
+                                    if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
+                                }
+                            } elseif ($existing.image -and $seenImgs.Add($existing.image)) {
+                                $mergedImgs.Add($existing.image)
+                            }
+
+                            if ($inItem.images) {
+                                foreach ($img in $inItem.images) {
+                                    if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
+                                }
+                            } elseif ($inItem.image -and $seenImgs.Add($inItem.image)) {
+                                $mergedImgs.Add($inItem.image)
+                            }
+
+                            $existing.images = @($mergedImgs)
+
+                            if ($inItem.content) { $existing.content = $inItem.content }
+                            if ($inItem.location) { $existing.location = $inItem.location }
+                            if ($inItem.date) { $existing.date = $inItem.date }
+                            if ($inItem.createdAt -and -not $existing.createdAt) { $existing.createdAt = $inItem.createdAt }
+
+                            $memoryMap[$idStr] = $existing
+                        } else {
+                            $memoryMap[$idStr] = $inItem
+                        }
+                    }
+
+                    $finalList = @($memoryMap.Values)
+                    $sortedList = @($finalList | Sort-Object -Property @{Expression={ if ($_.date) { $_.date } else { $_.createdAt } }} -Descending)
+
+                    $finalJson = ConvertTo-Json -InputObject $sortedList -Depth 10 -Compress
+                    [System.IO.File]::WriteAllText($memoriesFile, $finalJson, [System.Text.Encoding]::UTF8)
+
+                    $global:serverVersion = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
+                    Write-Host "[MEMORIES] Dong bo 2 chieu thanh cong: $($sortedList.Count) ky niem (Phien ban: $global:serverVersion)" -ForegroundColor Green
+
+                    $resObj = @{
+                        status = "ok"
+                        version = [string]$global:serverVersion
+                        count = $sortedList.Count
+                        memories = $sortedList
+                    }
+                    $resJson = ConvertTo-Json $resObj -Depth 10 -Compress
+                    $buffer = [System.Text.Encoding]::UTF8.GetBytes($resJson)
+
+                    $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                    $response.StatusCode = 200
+                    $response.ContentType = "application/json; charset=utf-8"
+                    $response.ContentLength64 = $buffer.Length
+                    $response.OutputStream.Write($buffer, 0, $buffer.Length)
+                    $response.Close()
+                    continue
+                } catch {
+                    Write-Host "[ERROR] Loi merge memories: $($_.Exception.Message)" -ForegroundColor Red
+                    $response.StatusCode = 500
+                    $errBytes = [System.Text.Encoding]::UTF8.GetBytes('{"status":"error","message":"' + $_.Exception.Message.Replace('"', '\"') + '"}')
+                    $response.ContentLength64 = $errBytes.Length
+                    $response.ContentType = "application/json; charset=utf-8"
+                    $response.OutputStream.Write($errBytes, 0, $errBytes.Length)
+                    $response.Close()
+                    continue
+                }
             }
         }
 
-        # PHỤC VỤ STATIC FILES (index.html, style.css, script.js...)
+        # 4. PHUC VU STATIC FILES (index.html, style.css, script.js...)
         $urlPath = $request.Url.AbsolutePath.TrimStart('/')
         if ([string]::IsNullOrEmpty($urlPath)) {
             $urlPath = "index.html"
@@ -158,15 +343,17 @@ while ($listener.IsListening) {
             }
 
             $response.StatusCode = 200
+            $response.ContentLength64 = $bytes.Length
             $response.OutputStream.Write($bytes, 0, $bytes.Length)
         } else {
             $response.StatusCode = 404
             $notFound = [System.Text.Encoding]::UTF8.GetBytes("404 Not Found")
+            $response.ContentLength64 = $notFound.Length
             $response.OutputStream.Write($notFound, 0, $notFound.Length)
         }
 
         $response.Close()
     } catch {
-        # Bỏ qua lỗi ngắt kết nối client
+        # Bo qua loi ngat ket noi client
     }
 }

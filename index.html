@@ -120,6 +120,15 @@
 
                     <!-- Nhóm Phải: Trạng thái Khách (Xem) hoặc Chủ nhân (Đăng nhập) -->
                     <div class="flex items-center space-x-2">
+                        <!-- Nút Trạng Thái Đồng Bộ (Live Sync Indicator) -->
+                        <button id="sync-status-btn" type="button" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-50 hover:bg-rose-50 text-gray-600 hover:text-rose-600 border border-gray-200/80 hover:border-rose-200 transition-all cursor-pointer shadow-2xs" title="Dữ liệu đồng bộ giữa Máy tính & Điện thoại. Bấm để làm mới ngay.">
+                            <span id="sync-status-dot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            <span id="sync-status-text" class="hidden sm:inline text-emerald-600 font-medium">Đã đồng bộ</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
+
                         <!-- Trạng thái KHÁCH XEM (Hiển thị khi chưa đăng nhập) -->
                         <div id="guest-nav-controls" class="flex items-center space-x-2">
                             <span class="hidden md:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/80 shadow-2xs">

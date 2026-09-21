@@ -272,7 +272,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const MemoryStore = {
         storageKey: 'weddingMemories',
+        deletedStorageKey: 'weddingDeletedIds',
+        versionKey: 'weddingMemoriesVersion',
         _cache: null,
+        _version: 0,
+        _isSyncing: false,
+        _pollTimer: null,
+
+        getDeletedIds() {
+            try {
+                return JSON.parse(localStorage.getItem(this.deletedStorageKey) || '[]');
+            } catch (e) {
+                return [];
+            }
+        },
+
+        addDeletedId(id) {
+            const list = this.getDeletedIds();
+            const idStr = String(id);
+            if (!list.includes(idStr)) {
+                list.push(idStr);
+                try { localStorage.setItem(this.deletedStorageKey, JSON.stringify(list)); } catch (e) {}
+            }
+        },
+
+        clearDeletedIds(idsToRemove) {
+            if (!idsToRemove || !idsToRemove.length) return;
+            const current = this.getDeletedIds();
+            const remaining = current.filter(id => !idsToRemove.includes(String(id)));
+            try { localStorage.setItem(this.deletedStorageKey, JSON.stringify(remaining)); } catch (e) {}
+        },
 
         getAll() {
             if (this._cache !== null) return this._cache;
@@ -284,83 +313,254 @@ document.addEventListener('DOMContentLoaded', () => {
             return this._cache;
         },
 
-        saveAll(memories) {
+        async saveAll(memories) {
             this._cache = [...memories];
 
-            // 1. Thử lưu vào LocalStorage
+            // 1. Lưu vào LocalStorage
             try {
                 localStorage.setItem(this.storageKey, JSON.stringify(memories));
             } catch (e) {
-                Logger.log('STORAGE_QUOTA_NOTICE', 'LocalStorage đã đầy, tự động chuyển lưu an toàn qua IndexedDB & Server');
+                Logger.log('STORAGE_QUOTA_NOTICE', 'LocalStorage đã đầy, chuyển lưu an toàn qua IndexedDB & Server');
             }
 
-            // 2. Lưu vào IndexedDB (không lo bị giới hạn dung lượng trên điện thoại)
-            IDBStorage.saveAll(memories).catch(() => {});
-
-            // 3. Đồng bộ lên Server nội bộ (lưu vào file memories.json)
-            this.syncToServer(memories);
-
-            return true; // Luôn thành công vì có IndexedDB & Server đảm bảo
-        },
-
-        async syncToServer(memories) {
-            const endpoints = ['/api/memories', 'http://localhost:8080/api/memories'];
-            for (const ep of endpoints) {
-                try {
-                    await fetch(ep, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json;charset=utf-8' },
-                        body: JSON.stringify(memories),
-                        mode: 'cors'
-                    });
-                    break;
-                } catch (e) {}
-            }
-        },
-
-        async initSync() {
-            // Đọc dữ liệu từ IndexedDB nếu có
+            // 2. Lưu vào IndexedDB (không lo giới hạn dung lượng trên điện thoại)
             try {
-                const idbList = await IDBStorage.getAll();
-                if (idbList && idbList.length > 0) {
-                    const currentLen = (this._cache || []).length;
-                    if (idbList.length >= currentLen) {
-                        this._cache = idbList;
-                        try { localStorage.setItem(this.storageKey, JSON.stringify(idbList)); } catch (e) {}
-                    }
-                }
+                await IDBStorage.saveAll(memories);
             } catch (e) {}
 
-            // Đồng bộ từ máy chủ nội bộ (memories.json)
-            const endpoints = ['/api/memories', 'http://localhost:8080/api/memories'];
-            for (const ep of endpoints) {
+            // 3. Đồng bộ lên Server nội bộ (có merge thông minh và chống ghi đè)
+            const syncResult = await this.syncToServer(memories);
+            return syncResult;
+        },
+
+        async syncToServer(memoriesToSend) {
+            if (this._isSyncing) return true;
+            this._isSyncing = true;
+            updateSyncStatusUI('syncing');
+
+            const list = memoriesToSend || this.getAll();
+            const deletedIds = this.getDeletedIds();
+
+            const payload = {
+                memories: list,
+                deletedIds: deletedIds
+            };
+
+            const endpoints = ['/api/memories'];
+            if (window.location.origin && window.location.origin.startsWith('http')) {
+                endpoints.unshift(`${window.location.origin}/api/memories`);
+            }
+            endpoints.push('http://localhost:8080/api/memories');
+
+            const uniqueEndpoints = [...new Set(endpoints)];
+            let success = false;
+
+            for (const ep of uniqueEndpoints) {
                 try {
-                    const resp = await fetch(ep, { mode: 'cors' });
+                    const resp = await fetch(ep, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json;charset=utf-8',
+                            'Cache-Control': 'no-cache, no-store'
+                        },
+                        body: JSON.stringify(payload),
+                        mode: 'cors'
+                    });
+
                     if (resp.ok) {
-                        const serverMemories = await resp.json();
-                        if (Array.isArray(serverMemories) && serverMemories.length > 0) {
-                            this._cache = serverMemories;
-                            IDBStorage.saveAll(serverMemories);
-                            try { localStorage.setItem(this.storageKey, JSON.stringify(serverMemories)); } catch (e) {}
-                            if (typeof renderMemories === 'function') renderMemories();
-                            if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                        const data = await resp.json();
+                        if (data && data.status === 'ok') {
+                            if (data.version) {
+                                this._version = String(data.version);
+                                try { localStorage.setItem(this.versionKey, String(data.version)); } catch (e) {}
+                            }
+                            if (Array.isArray(data.memories)) {
+                                this._cache = data.memories;
+                                try { localStorage.setItem(this.storageKey, JSON.stringify(data.memories)); } catch (e) {}
+                                try { await IDBStorage.saveAll(data.memories); } catch (e) {}
+                            }
+                            if (deletedIds.length > 0) {
+                                this.clearDeletedIds(deletedIds);
+                            }
+                            success = true;
+                            updateSyncStatusUI('synced');
                             break;
-                        } else if (Array.isArray(serverMemories) && serverMemories.length === 0 && this._cache && this._cache.length > 0) {
-                            this.syncToServer(this._cache);
                         }
                     }
                 } catch (e) {}
             }
+
+            this._isSyncing = false;
+            if (!success) {
+                updateSyncStatusUI('error');
+            }
+            return success;
         },
 
-        add(item) {
+        async fetchLatestFromServer() {
+            if (this._isSyncing) return false;
+            this._isSyncing = true;
+            updateSyncStatusUI('syncing');
+
+            const endpoints = ['/api/memories'];
+            if (window.location.origin && window.location.origin.startsWith('http')) {
+                endpoints.unshift(`${window.location.origin}/api/memories`);
+            }
+            endpoints.push('http://localhost:8080/api/memories');
+            const uniqueEndpoints = [...new Set(endpoints)];
+
+            let updated = false;
+            for (const ep of uniqueEndpoints) {
+                try {
+                    const url = `${ep}?_t=${Date.now()}`;
+                    const resp = await fetch(url, {
+                        mode: 'cors',
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                    });
+                    if (resp.ok) {
+                        const serverMemories = await resp.json();
+                        if (Array.isArray(serverMemories)) {
+                            const merged = this.mergeWithLocal(serverMemories);
+                            this._cache = merged;
+                            try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                            try { await IDBStorage.saveAll(merged); } catch (e) {}
+
+                            if (typeof renderMemories === 'function') renderMemories();
+                            if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                            if (merged.length > serverMemories.length) {
+                                setTimeout(() => this.syncToServer(merged), 200);
+                            }
+                            updated = true;
+                            updateSyncStatusUI('synced');
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            this._isSyncing = false;
+            if (!updated) {
+                updateSyncStatusUI('error');
+            }
+            return updated;
+        },
+
+        mergeWithLocal(serverMemories) {
+            const deletedIds = this.getDeletedIds();
+            const localMemories = this.getAll();
+            const map = new Map();
+
+            for (const item of serverMemories) {
+                if (!item || !item.id) continue;
+                if (deletedIds.includes(String(item.id))) continue;
+                map.set(String(item.id), { ...item });
+            }
+
+            for (const localItem of localMemories) {
+                if (!localItem || !localItem.id) continue;
+                const idStr = String(localItem.id);
+                if (deletedIds.includes(idStr)) continue;
+
+                if (map.has(idStr)) {
+                    const serverItem = map.get(idStr);
+                    const serverImgs = serverItem.images || (serverItem.image ? [serverItem.image] : []);
+                    const localImgs = localItem.images || (localItem.image ? [localItem.image] : []);
+                    const combined = [...new Set([...serverImgs, ...localImgs])];
+                    serverItem.images = combined;
+                    map.set(idStr, serverItem);
+                } else {
+                    map.set(idStr, localItem);
+                }
+            }
+
+            const result = Array.from(map.values());
+            result.sort((a, b) => {
+                const dateA = a.date || a.createdAt || '';
+                const dateB = b.date || b.createdAt || '';
+                return dateB.localeCompare(dateA);
+            });
+            return result;
+        },
+
+        async checkServerVersionAndSync() {
+            if (this._isSyncing) return;
+
+            const endpoints = ['/api/version'];
+            if (window.location.origin && window.location.origin.startsWith('http')) {
+                endpoints.unshift(`${window.location.origin}/api/version`);
+            }
+            endpoints.push('http://localhost:8080/api/version');
+            const uniqueEndpoints = [...new Set(endpoints)];
+
+            for (const ep of uniqueEndpoints) {
+                try {
+                    const url = `${ep}?_t=${Date.now()}`;
+                    const resp = await fetch(url, {
+                        mode: 'cors',
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data && data.status === 'ok') {
+                            const sVersion = String(data.version || 0);
+                            const currentLocalCount = (this._cache || []).length;
+
+                            if (sVersion !== String(this._version) || data.count !== currentLocalCount) {
+                                this._version = sVersion;
+                                try { localStorage.setItem(this.versionKey, sVersion); } catch (e) {}
+                                await this.fetchLatestFromServer();
+                            } else {
+                                updateSyncStatusUI('synced');
+                            }
+                            return;
+                        }
+                    }
+                } catch (e) {}
+            }
+            updateSyncStatusUI('error');
+        },
+
+        async initSync() {
+            try {
+                const idbList = await IDBStorage.getAll();
+                if (idbList && idbList.length > 0) {
+                    this._cache = idbList;
+                    try { localStorage.setItem(this.storageKey, JSON.stringify(idbList)); } catch (e) {}
+                }
+            } catch (e) {}
+
+            try {
+                this._version = localStorage.getItem(this.versionKey) || 0;
+            } catch (e) {}
+
+            await this.fetchLatestFromServer();
+
+            if (!this._pollTimer) {
+                this._pollTimer = setInterval(() => {
+                    this.checkServerVersionAndSync();
+                }, 3500);
+            }
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    this.checkServerVersionAndSync();
+                }
+            });
+            window.addEventListener('focus', () => {
+                this.checkServerVersionAndSync();
+            });
+        },
+
+        async add(item) {
             if (!Auth.isLoggedIn()) {
                 Logger.log('UNAUTHORIZED_ADD', 'Từ chối thêm kỷ niệm do chưa đăng nhập');
                 return false;
             }
             const list = this.getAll();
-            list.unshift(item); // Thêm lên đầu danh sách
-            const success = this.saveAll(list);
+            list.unshift(item);
+            const success = await this.saveAll(list);
             if (success) {
                 Logger.log('MEMORY_ADDED', `Đã lưu kỷ niệm mới: "${item.content ? item.content.substring(0, 30) : 'Kỷ niệm'}..."`, {
                     imagesCount: item.images ? item.images.length : 1,
@@ -371,16 +571,48 @@ document.addEventListener('DOMContentLoaded', () => {
             return success;
         },
 
-        remove(id) {
+        async remove(id) {
             if (!Auth.isLoggedIn()) {
                 Logger.log('UNAUTHORIZED_DELETE', 'Từ chối xóa kỷ niệm do chưa đăng nhập');
                 return false;
             }
+            const idStr = String(id);
+            this.addDeletedId(idStr);
+
             let list = this.getAll();
-            list = list.filter(m => String(m.id) !== String(id));
-            this.saveAll(list);
-            Logger.log('MEMORY_DELETED', `Đã xóa kỷ niệm id: ${id}`);
-            return true;
+            list = list.filter(m => String(m.id) !== idStr);
+            this._cache = list;
+
+            try { localStorage.setItem(this.storageKey, JSON.stringify(list)); } catch (e) {}
+            try { await IDBStorage.saveAll(list); } catch (e) {}
+
+            const success = await this.syncToServer(list);
+            Logger.log('MEMORY_DELETED', `Đã xóa kỷ niệm id: ${idStr}`);
+            return success;
+        }
+    };
+
+    const updateSyncStatusUI = (status) => {
+        const dot = document.getElementById('sync-status-dot');
+        const text = document.getElementById('sync-status-text');
+        const btn = document.getElementById('sync-status-btn');
+        if (!dot || !text) return;
+
+        if (status === 'syncing') {
+            dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+            text.textContent = 'Đang đồng bộ...';
+            text.className = 'hidden sm:inline text-amber-600 font-semibold';
+            if (btn) btn.title = 'Đang đồng bộ dữ liệu với máy chủ...';
+        } else if (status === 'synced') {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            text.textContent = 'Đã đồng bộ';
+            text.className = 'hidden sm:inline text-emerald-600 font-medium';
+            if (btn) btn.title = 'Dữ liệu đã khớp hoàn toàn giữa Máy tính & Điện thoại. Bấm để làm mới ngay.';
+        } else if (status === 'error') {
+            dot.className = 'w-2 h-2 rounded-full bg-rose-400';
+            text.textContent = 'Chưa kết nối';
+            text.className = 'hidden sm:inline text-rose-500 font-medium';
+            if (btn) btn.title = 'Chưa kết nối được máy chủ. Bấm để thử kết nối lại.';
         }
     };
 
@@ -701,6 +933,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             renderMemories();
             renderVietnamMap();
+            MemoryStore.checkServerVersionAndSync();
         } else if (tab === 'add') {
             addTab.classList.remove('hidden');
             homeTab.classList.add('hidden');
@@ -749,6 +982,19 @@ document.addEventListener('DOMContentLoaded', () => {
         hamburgerDropdown.classList.add('hidden');
         openSettingsModal();
     });
+
+    const syncStatusBtn = document.getElementById('sync-status-btn');
+    if (syncStatusBtn) {
+        syncStatusBtn.addEventListener('click', async () => {
+            updateSyncStatusUI('syncing');
+            const ok = await MemoryStore.fetchLatestFromServer();
+            if (ok) {
+                Logger.log('MANUAL_SYNC_SUCCESS', 'Người dùng đã bấm đồng bộ thành công');
+            } else {
+                Logger.log('MANUAL_SYNC_FAILED', 'Người dùng bấm đồng bộ nhưng máy chủ chưa phản hồi');
+            }
+        });
+    }
 
     // =========================================================================
     // 8. XỬ LÝ MODAL QUẢN LÝ TÀI KHOẢN & ĐỔI MẬT KHẨU
@@ -997,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================================================
     // 11. XỬ LÝ LƯU KỶ NIỆM MỚI
     // =========================================================================
-    saveMemoryBtn.addEventListener('click', () => {
+    saveMemoryBtn.addEventListener('click', async () => {
         if (!Auth.isLoggedIn()) {
             openLoginModal('Vui lòng đăng nhập tài khoản Chủ Nhân để lưu kỷ niệm!');
             return;
@@ -1020,39 +1266,40 @@ document.addEventListener('DOMContentLoaded', () => {
         saveMemoryBtn.disabled = true;
         saveMemoryBtn.innerHTML = `
             <svg class="animate-spin h-5 w-5 mr-2 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            <span>Đang lưu kỷ niệm...</span>
+            <span>Đang lưu và đồng bộ lên máy tính & điện thoại...</span>
         `;
 
-        setTimeout(() => {
-            const newMemory = {
-                id: Date.now().toString(),
-                images: [...selectedImages],
-                content: content,
-                location: location,
-                date: date,
-                createdAt: new Date().toISOString()
-            };
+        const newMemory = {
+            id: Date.now().toString(),
+            images: [...selectedImages],
+            content: content,
+            location: location,
+            date: date,
+            createdAt: new Date().toISOString()
+        };
 
-            const saved = MemoryStore.add(newMemory);
+        const synced = await MemoryStore.add(newMemory);
 
-            saveMemoryBtn.disabled = false;
-            saveMemoryBtn.innerHTML = `<span>Lưu Lại Kỷ Niệm</span>`;
+        saveMemoryBtn.disabled = false;
+        saveMemoryBtn.innerHTML = `<span>Lưu Lại Kỷ Niệm</span>`;
 
-            if (saved) {
-                // Reset form
-                selectedImages = [];
-                updatePreviewThumbnails();
-                memoryContent.value = '';
-                memoryLocation.value = '';
-                memoryDate.value = '';
+        // Reset form
+        selectedImages = [];
+        updatePreviewThumbnails();
+        memoryContent.value = '';
+        memoryLocation.value = '';
+        memoryDate.value = '';
 
-                // Chuyển sang Tab Trang chủ để xem kết quả
-                switchTab('home');
-                alert('Đã lưu kỷ niệm ngọt ngào của hai bạn thành công!');
-            } else {
-                alert('Không thể lưu do bộ nhớ trình duyệt bị đầy! Hãy thử chọn ít ảnh hơn hoặc ảnh nhẹ hơn.');
-            }
-        }, 500);
+        // Chuyển sang Tab Trang chủ để xem kết quả
+        switchTab('home');
+        renderMemories();
+        renderVietnamMap();
+
+        if (synced) {
+            alert('🎉 Đã lưu và đồng bộ thành công! Ảnh đã sẵn sàng hiển thị trên cả máy tính & điện thoại.');
+        } else {
+            alert('⚠️ Đã lưu trên thiết bị của bạn. Khi máy chủ kết nối lại, ảnh sẽ tự động đồng bộ sang thiết bị khác.');
+        }
     });
 
     // =========================================================================
@@ -1384,6 +1631,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (newCompressedImages.length) {
+                        btnText.textContent = 'Đang đồng bộ...';
                         const memories = MemoryStore.getAll();
                         const targetItem = memories.find(m => String(m.id) === String(memoryId));
                         if (targetItem) {
@@ -1391,14 +1639,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 targetItem.images = targetItem.image ? [targetItem.image] : [];
                             }
                             targetItem.images.push(...newCompressedImages);
-                            const success = MemoryStore.saveAll(memories);
-                            if (success) {
-                                Logger.log('ADD_PHOTOS_TO_ALBUM', `Đã thêm ${newCompressedImages.length} ảnh vào album ID: ${memoryId}`);
-                                alert(`Đã thêm thành công ${newCompressedImages.length} ảnh vào album!`);
-                                renderMemories();
-                                renderVietnamMap();
+                            const synced = await MemoryStore.saveAll(memories);
+                            Logger.log('ADD_PHOTOS_TO_ALBUM', `Đã thêm ${newCompressedImages.length} ảnh vào album ID: ${memoryId}`);
+                            renderMemories();
+                            renderVietnamMap();
+                            if (synced) {
+                                alert(`🎉 Đã thêm thành công ${newCompressedImages.length} ảnh vào album và đồng bộ ngay sang các thiết bị khác!`);
                             } else {
-                                alert('Không thể lưu ảnh do lỗi bộ nhớ!');
+                                alert(`Đã lưu ${newCompressedImages.length} ảnh trên thiết bị này (sẽ tự động đồng bộ khi có kết nối máy chủ).`);
                             }
                         }
                     }
@@ -1411,13 +1659,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // Bắt sự kiện Xóa kỷ niệm
             const deleteBtn = card.querySelector(`[data-delete-memory="${memoryId}"]`);
             if (deleteBtn) {
-                deleteBtn.addEventListener('click', () => {
+                deleteBtn.addEventListener('click', async () => {
                     if (!Auth.isLoggedIn()) {
                         openLoginModal('Vui lòng đăng nhập tài khoản Chủ Nhân để xóa kỷ niệm!');
                         return;
                     }
-                    if (confirm('Bạn có chắc chắn muốn xóa kỷ niệm này không?')) {
-                        MemoryStore.remove(memoryId);
+                    if (confirm('Bạn có chắc chắn muốn xóa kỷ niệm này không? (Kỷ niệm sẽ bị xóa trên cả máy tính và điện thoại)')) {
+                        await MemoryStore.remove(memoryId);
                         renderMemories();
                         renderVietnamMap();
                     }
