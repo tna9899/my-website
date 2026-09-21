@@ -1,0 +1,160 @@
+=======================================================
+NHẬT KÝ THAO TÁC HỆ THỐNG - NGỌC ÁNH & TÚ UYÊN
+Thư mục: D:\TNA\Project\anhuyen\
+Khởi tạo: 2026-09-20
+=======================================================
+[HỆ THỐNG] File log đã được khởi tạo thành công tại thư mục anhuyen.
+[20/9/2026 15:47:08] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 15:50:35] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 15:50:38] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 15:50:38] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:50:41] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 15:50:44] [THEME_CHANGED] Thay đổi màu nền trang web: #fdfaf6
+[20/9/2026 15:50:44] [THEME_CHANGED] Thay đổi màu nền trang web: #f9fafb
+[20/9/2026 15:50:45] [THEME_CHANGED] Thay đổi màu nền trang web: #fffbeb
+[20/9/2026 15:50:45] [THEME_CHANGED] Thay đổi màu nền trang web: #f0fdf4
+[20/9/2026 15:50:45] [THEME_CHANGED] Thay đổi màu nền trang web: #fdfaf6
+[20/9/2026 15:50:46] [THEME_CHANGED] Thay đổi màu nền trang web: #faf5ff
+[20/9/2026 15:50:46] [THEME_CHANGED] Thay đổi màu nền trang web: #fdfaf6
+[20/9/2026 15:50:48] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 15:50:50] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 15:50:58] [SELECT_FILES] Người dùng đã chọn 1 file ảnh
+[20/9/2026 15:51:08] [MEMORY_ADDED] Đã lưu kỷ niệm mới: "a..." {"imagesCount":1,"location":"Quy Nhơn","date":"2026-09-20"}
+[20/9/2026 15:51:08] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:51:12] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 15:51:16] [LOGOUT] Người dùng đã đăng xuất
+[20/9/2026 15:53:10] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 15:53:16] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 15:53:16] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:53:24] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 15:53:27] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 15:53:29] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 15:54:43] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:57:03] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 15:57:06] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 15:57:06] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:57:10] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 15:57:11] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 15:57:17] [ADD_PHOTOS_TO_ALBUM] Đã thêm 6 ảnh vào album ID: 1789894268399
+[20/9/2026 15:57:28] [SLIDE_IMAGE] Xem ảnh 2/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:29] [SLIDE_IMAGE] Xem ảnh 3/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:29] [SLIDE_IMAGE] Xem ảnh 4/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:30] [SLIDE_IMAGE] Xem ảnh 5/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:31] [SLIDE_IMAGE] Xem ảnh 6/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:31] [SLIDE_IMAGE] Xem ảnh 7/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:31] [SLIDE_IMAGE] Xem ảnh 1/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:32] [SLIDE_IMAGE] Xem ảnh 2/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:32] [SLIDE_IMAGE] Xem ảnh 3/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:33] [SLIDE_IMAGE] Xem ảnh 4/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:33] [SLIDE_IMAGE] Xem ảnh 5/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:33] [SLIDE_IMAGE] Xem ảnh 6/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:33] [SLIDE_IMAGE] Xem ảnh 7/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:34] [SLIDE_IMAGE] Xem ảnh 1/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:34] [SLIDE_IMAGE] Xem ảnh 2/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:35] [SLIDE_IMAGE] Xem ảnh 3/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:39] [SLIDE_IMAGE] Xem ảnh 4/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:40] [SLIDE_IMAGE] Xem ảnh 5/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:40] [SLIDE_IMAGE] Xem ảnh 6/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:41] [SLIDE_IMAGE] Xem ảnh 7/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:41] [SLIDE_IMAGE] Xem ảnh 1/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 15:57:42] [SLIDE_IMAGE] Xem ảnh 2/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 19:52:51] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 19:52:55] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 19:53:20] [SLIDE_IMAGE] Xem ảnh 5/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 19:53:21] [SLIDE_IMAGE] Xem ảnh 6/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 19:53:22] [SLIDE_IMAGE] Xem ảnh 7/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 19:53:22] [SLIDE_IMAGE] Xem ảnh 1/7 trong kỷ niệm ID: 1789894268399
+[20/9/2026 19:53:38] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 19:53:38] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 20:11:04] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 20:11:06] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 20:11:06] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 20:11:11] [SWITCH_TAB] Chuyển sang tab: map
+[20/9/2026 20:11:11] [RENDER_MAP] Khởi tạo và hiển thị Bản đồ Việt Nam 34 Tỉnh thành
+[20/9/2026 20:19:14] [SWITCH_TAB] Chuyển sang tab: map
+[20/9/2026 20:19:14] [RENDER_MAP] Khởi tạo và hiển thị Bản đồ Việt Nam 34 Tỉnh thành
+[20/9/2026 20:43:56] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 20:43:57] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 20:43:57] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 21:08:52] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 21:08:53] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 21:08:53] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 21:09:14] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 21:30:32] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 21:30:37] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 21:30:37] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 21:30:57] [ADD_PHOTOS_TO_ALBUM] Đã thêm 6 ảnh vào album ID: 1789892868051
+[20/9/2026 21:36:39] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 21:36:49] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 21:36:49] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 22:15:25] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:15:27] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 22:15:27] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 22:18:57] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:19:54] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:20:00] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 22:20:00] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 22:30:05] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:36:11] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:45:49] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:46:30] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:46:45] [LOGOUT] Người dùng đã đăng xuất
+[20/9/2026 22:47:01] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 22:47:14] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 22:47:20] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 22:47:20] [ADD_PHOTO_FROM_MAP] Mở form thêm ảnh tại địa điểm: Bình Định & Quy Nhơn
+[20/9/2026 22:52:20] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:52:53] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:52:58] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:52:58] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:53:00] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:53:00] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:53:01] [LOGOUT] Người dùng đã đăng xuất
+[20/9/2026 22:53:23] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 22:53:39] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:53:39] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:53:40] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:53:40] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:53:40] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:53:40] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:53:48] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:53:58] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 22:54:02] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:02] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:03] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:03] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:03] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:03] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:03] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:03] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:04] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:04] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:04] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:04] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:05] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:05] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:05] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:05] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:05] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:05] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:20] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 22:54:20] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 22:54:25] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:25] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:26] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 22:54:26] [ERROR] Uncaught ReferenceError: updateUserInfoUI is not defined {"file":"http://localhost:8080/script.js","line":561,"col":9}
+[20/9/2026 22:54:28] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 22:57:38] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 22:58:28] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 23:00:20] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[20/9/2026 23:00:27] [LOGIN_SUCCESS] Đăng nhập thành công với tài khoản: anhuyen
+[20/9/2026 23:00:30] [OPEN_MODAL] Mở modal Quản lý tài khoản
+[20/9/2026 23:00:35] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 23:00:36] [SWITCH_TAB] Chuyển sang tab: add
+[20/9/2026 23:00:37] [OPEN_MODAL] Mở modal Cài đặt hệ thống
+[20/9/2026 23:00:39] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 23:00:40] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 23:00:40] [SWITCH_TAB] Chuyển sang tab: home
+[20/9/2026 23:00:41] [SWITCH_TAB] Chuyển sang tab: home
+[21/9/2026 21:04:16] [APP_READY] Hệ thống đã khởi tạo hoàn tất
+[21/9/2026 21:37:56] [APP_READY] Hệ thống đã khởi tạo hoàn tất
