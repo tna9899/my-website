@@ -930,6 +930,109 @@
         </div>
     </div>
 
+    <!-- ======================================================== -->
+    <!-- MODAL XEM ẢNH FULL MÀN HÌNH & PHÓNG TO / THU NHỎ (LIGHTBOX) -->
+    <!-- Giữ nguyên 100% độ phân giải gốc của ảnh -->
+    <!-- ======================================================== -->
+    <div id="modal-image-viewer" class="fixed inset-0 z-[100] hidden flex-col bg-black/95 backdrop-blur-md select-none transition-opacity duration-300 opacity-0 pointer-events-none" role="dialog" aria-modal="true" aria-label="Xem ảnh chi tiết">
+        <!-- Thanh công cụ phía trên -->
+        <header class="relative z-20 flex items-center justify-between px-3 md:px-6 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent text-white flex-shrink-0">
+            <!-- Thông tin ảnh & số thứ tự -->
+            <div class="flex items-center space-x-3 min-w-0 pr-2">
+                <span class="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-sm flex-shrink-0">
+                    💕
+                </span>
+                <div class="min-w-0">
+                    <div class="flex items-center space-x-2">
+                        <span id="viewer-counter" class="text-xs md:text-sm font-bold bg-white/15 px-2.5 py-0.5 rounded-full border border-white/20 tracking-wider whitespace-nowrap">
+                            1 / 1
+                        </span>
+                        <span id="viewer-zoom-level" class="text-[11px] font-mono text-gray-300 bg-black/40 px-2 py-0.5 rounded-md border border-white/10 hidden sm:inline-block">
+                            100%
+                        </span>
+                    </div>
+                    <p id="viewer-subtitle" class="text-[11px] text-gray-300 truncate max-w-[180px] sm:max-w-xs md:max-w-md mt-0.5 font-medium"></p>
+                </div>
+            </div>
+
+            <!-- Các nút điều khiển phóng to / thu nhỏ / xoay / tải / đóng -->
+            <div class="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
+                <!-- Nút Thu nhỏ (-) -->
+                <button id="viewer-btn-zoom-out" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Thu nhỏ (Cuộn chuột xuống hoặc phím -)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M20 12H4" />
+                    </svg>
+                </button>
+
+                <!-- Nút Đặt lại kích thước (100% / Vừa màn hình) -->
+                <button id="viewer-btn-zoom-reset" class="px-2.5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer" title="Kích thước gốc / Vừa màn hình (Nhấp đúp hoặc phím 0)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                    </svg>
+                    <span class="hidden md:inline">Vừa vặn</span>
+                </button>
+
+                <!-- Nút Phóng to (+) -->
+                <button id="viewer-btn-zoom-in" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Phóng to (Cuộn chuột lên hoặc phím +)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+
+                <!-- Nút Xoay ảnh (90 độ) -->
+                <button id="viewer-btn-rotate" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Xoay ảnh 90° (phím R)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+
+                <!-- Nút Tải ảnh gốc -->
+                <a id="viewer-btn-download" href="#" download="ky-niem-tinh-yeu.jpg" class="p-2 sm:p-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 active:scale-95 text-white transition-all flex items-center space-x-1 cursor-pointer" title="Tải ảnh độ phân giải gốc về máy" target="_blank" rel="noopener noreferrer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </a>
+
+                <!-- Nút Đóng -->
+                <button id="viewer-btn-close" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-red-600 active:scale-95 text-white transition-all cursor-pointer" title="Đóng (phím ESC)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Sân khấu chính hiển thị ảnh (Khu vực có thể Zoom, Pan, Drag) -->
+        <main id="viewer-stage" class="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center select-none touch-none">
+            <img id="viewer-image" src="" alt="Ảnh kỷ niệm phóng to" class="max-w-none max-h-none block select-none pointer-events-auto transition-transform will-change-transform" draggable="false">
+            
+            <!-- Vòng quay tải ảnh nếu ảnh phân giải cực cao đang load -->
+            <div id="viewer-loader" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+                <div class="w-12 h-12 border-4 border-rose-400 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        </main>
+
+        <!-- Nút Lùi ảnh trước (<) -->
+        <button id="viewer-btn-prev" class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-30 p-3 sm:p-4 rounded-full bg-black/50 hover:bg-black/80 active:scale-90 text-white border border-white/20 transition-all hidden cursor-pointer" title="Ảnh trước (Phím mũi tên trái)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 sm:w-7 sm:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
+            </svg>
+        </button>
+
+        <!-- Nút Sang ảnh tiếp (>) -->
+        <button id="viewer-btn-next" class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-30 p-3 sm:p-4 rounded-full bg-black/50 hover:bg-black/80 active:scale-90 text-white border border-white/20 transition-all hidden cursor-pointer" title="Ảnh kế tiếp (Phím mũi tên phải)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 sm:w-7 sm:h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
+            </svg>
+        </button>
+
+        <!-- Thanh thông tin mô tả kỷ niệm ở đáy -->
+        <footer id="viewer-footer" class="relative z-20 px-4 py-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-center text-white flex-shrink-0">
+            <p id="viewer-caption" class="text-xs sm:text-sm md:text-base font-playfair italic text-rose-100 max-w-2xl mx-auto drop-shadow-md truncate"></p>
+            <p class="text-[10px] text-gray-400 mt-1">Cuộn chuột hoặc 2 ngón tay để phóng to/thu nhỏ • Bấm đúp để thu phóng nhanh • Nhấn ESC để đóng</p>
+        </footer>
+    </div>
+
     <!-- Script Logic Chính -->
     <script src="script.js"></script>
 </body>

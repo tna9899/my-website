@@ -573,3 +573,67 @@ svg.vn-map path.active-province {
     opacity: 0 !important;
     pointer-events: none !important;
 }
+
+/* =================================================== */
+/* MODAL XEM ẢNH FULL MÀN HÌNH (LIGHTBOX VIEWER) */
+/* =================================================== */
+#modal-image-viewer {
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s ease;
+}
+
+#modal-image-viewer.is-open {
+    display: flex !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+#viewer-stage {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    cursor: grab;
+}
+
+#viewer-stage.is-panning {
+    cursor: grabbing !important;
+}
+
+#viewer-image {
+    max-width: 92vw;
+    max-height: 84vh;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+    transform-origin: center center;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: auto;
+}
+
+/* Biểu tượng con trỏ kính lúp khi xem ảnh trong album & bài đăng */
+.cursor-zoom-in {
+    cursor: zoom-in !important;
+}
+
+.stacked-card-frame {
+    cursor: zoom-in;
+}
+
+.stacked-card-frame img {
+    transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1), filter 0.2s ease;
+}
+
+.stacked-card-frame:hover img {
+    transform: scale(1.03);
+    filter: brightness(1.03);
+}
+
+.single-photo-frame {
+    cursor: zoom-in;
+}
+
+.single-photo-frame:hover img {
+    transform: scale(1.02);
+    filter: brightness(1.02);
+}
+

@@ -120,17 +120,26 @@ Write-Host "Nhan Ctrl + C de dung may chu bat ky luc nao.`n"
 # Tu dong mo trinh duyet
 Start-Process "http://localhost:$port"
 
-# Ham ho tro boc tach va luu anh base64 thanh file vat ly trong thu muc uploads/
+# Ham ho tro boc tach va luu anh base64 thanh file vat ly trong thu muc uploads/ (giu nguyen 100% chat luong & do phan giai goc)
 function Save-Base64ToUploads($b64String, $prefixId, $idx) {
-    if (-not $b64String -or -not ($b64String -match '^data:image\/([a-zA-Z0-9]+);base64,(.+)$')) {
+    if (-not $b64String -or -not ($b64String -is [string]) -or -not $b64String.StartsWith("data:image/")) {
         return $b64String # Neu da la duong dan file (uploads/...) thi giu nguyen
     }
 
     try {
-        $ext = $matches[1].ToLower()
-        if ($ext -eq 'jpeg') { $ext = 'jpg' }
-        if ($ext -notmatch '^(jpg|png|webp|gif|svg)$') { $ext = 'jpg' }
-        $data = $matches[2]
+        $commaIdx = $b64String.IndexOf(',')
+        if ($commaIdx -lt 0) { return $b64String }
+
+        $header = $b64String.Substring(0, $commaIdx)
+        $ext = "jpg"
+        if ($header -match 'image\/([a-zA-Z0-9\+\-]+)') {
+            $matchedExt = $matches[1].ToLower()
+            if ($matchedExt -eq 'jpeg') { $ext = 'jpg' }
+            elseif ($matchedExt -eq 'svg+xml') { $ext = 'svg' }
+            elseif ($matchedExt -match '^(jpg|png|webp|gif|svg|avif)$') { $ext = $matchedExt }
+        }
+
+        $data = $b64String.Substring($commaIdx + 1)
         $bytes = [System.Convert]::FromBase64String($data)
         
         $safeId = [string]$prefixId -replace '[^a-zA-Z0-9_-]', ''

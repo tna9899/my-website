@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Gửi ngầm tới server nội bộ để ghi vào D:\TNA\Project\anhuyen\user_activity.log
         async sendToServer(logLine) {
-            const endpoints = ['/api/log', 'http://localhost:8080/api/log'];
+            const endpoints = ['/api/log'];
             for (const ep of endpoints) {
                 try {
                     await fetch(ep, {
@@ -659,108 +659,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Hàm nén ảnh siêu nhẹ tối ưu hoàn toàn cho điện thoại (iOS Safari, Android) & máy tính
-    const compressImage = async (file, maxWidth = 1000, quality = 0.72) => {
-        // 1. Tận dụng createImageBitmap nếu trình duyệt hỗ trợ (tiết kiệm RAM, tránh crash trên điện thoại)
-        if (typeof createImageBitmap === 'function') {
-            try {
-                const bitmap = await createImageBitmap(file);
-                let width = bitmap.width;
-                let height = bitmap.height;
+    // =========================================================================
+    // 4. XỬ LÝ ẢNH GIỮ NGUYÊN 100% ĐỘ PHÂN GIẢI & TẢI LÊN MÁY CHỦ
+    // =========================================================================
+    // Giữ nguyên 100% từng pixel và chất lượng ảnh gốc từ điện thoại & máy tính
+    const processImagePreservingResolution = async (file) => {
+        if (!file) return null;
 
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(bitmap, 0, 0, width, height);
-                if (typeof bitmap.close === 'function') bitmap.close();
-
-                const base64 = canvas.toDataURL('image/jpeg', quality);
-                return base64;
-            } catch (err) {
-                // Fallback xuống phương pháp tiếp theo nếu không decode được trực tiếp
-            }
-        }
-
-        // 2. Dùng URL.createObjectURL để tránh tạo chuỗi base64 khổng lồ trong bộ nhớ RAM điện thoại
         return new Promise((resolve, reject) => {
-            let objectUrl = null;
-            try {
-                objectUrl = URL.createObjectURL(file);
-            } catch (e) {
-                // Tiếp tục thử FileReader nếu không tạo được URL
-            }
-
-            if (objectUrl) {
-                const img = new Image();
-                img.onload = () => {
-                    try {
-                        URL.revokeObjectURL(objectUrl);
-                    } catch (e) {}
-
-                    let width = img.naturalWidth || img.width;
-                    let height = img.naturalHeight || img.height;
-
-                    if (width > maxWidth) {
-                        height = Math.round((height * maxWidth) / width);
-                        width = maxWidth;
-                    }
-
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0, width, height);
-
-                    resolve(canvas.toDataURL('image/jpeg', quality));
-                };
-
-                img.onerror = () => {
-                    try {
-                        URL.revokeObjectURL(objectUrl);
-                    } catch (e) {}
-                    tryFileReader();
-                };
-
-                img.src = objectUrl;
-            } else {
-                tryFileReader();
-            }
-
-            function tryFileReader() {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const fallbackImg = new Image();
-                    fallbackImg.onload = () => {
-                        let width = fallbackImg.naturalWidth || fallbackImg.width;
-                        let height = fallbackImg.naturalHeight || fallbackImg.height;
-
-                        if (width > maxWidth) {
-                            height = Math.round((height * maxWidth) / width);
-                            width = maxWidth;
-                        }
-
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                // Đọc trực tiếp định dạng nhị phân gốc, không resize hay nén giảm pixel
+                resolve(e.target.result);
+            };
+            reader.onerror = (err) => {
+                // Fallback nếu trình duyệt gặp sự cố đọc trực tiếp: đọc qua Image nhưng giữ nguyên 100% dimensions
+                try {
+                    const objectUrl = URL.createObjectURL(file);
+                    const img = new Image();
+                    img.onload = () => {
+                        try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
                         const canvas = document.createElement('canvas');
-                        canvas.width = width;
-                        canvas.height = height;
+                        canvas.width = img.naturalWidth || img.width;
+                        canvas.height = img.naturalHeight || img.height;
                         const ctx = canvas.getContext('2d');
-                        ctx.drawImage(fallbackImg, 0, 0, width, height);
-
-                        resolve(canvas.toDataURL('image/jpeg', quality));
+                        ctx.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/jpeg', 0.98));
                     };
-                    fallbackImg.onerror = reject;
-                    fallbackImg.src = e.target.result;
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            }
+                    img.onerror = () => {
+                        try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
+                        reject(err);
+                    };
+                    img.src = objectUrl;
+                } catch (fallbackErr) {
+                    reject(err);
+                }
+            };
+            reader.readAsDataURL(file);
         });
     };
+
+    // Bí danh tương thích ngược an toàn
+    const compressImage = (file) => processImagePreservingResolution(file);
 
     // Hàm tải ảnh trực tiếp lên máy chủ nội bộ vào thư mục uploads/ (giúp ứng dụng siêu nhẹ)
     const uploadImagesToServer = async (imagesArray) => {
@@ -774,7 +714,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 for (const ep of endpoints) {
                     try {
                         const controller = new AbortController();
-                        const toId = setTimeout(() => controller.abort(), 10000);
+                        // Tăng timeout lên 60 giây để ảnh chất lượng cao gốc upload trơn tru
+                        const toId = setTimeout(() => controller.abort(), 60000);
                         const resp = await fetch(ep, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json;charset=utf-8' },
@@ -1291,21 +1232,21 @@ document.addEventListener('DOMContentLoaded', () => {
             processedCount++;
             const pct = Math.round((processedCount / files.length) * 100);
             if (progressBar) progressBar.style.width = `${pct}%`;
-            if (progressText) progressText.textContent = `Đang nén ảnh (${processedCount}/${files.length})...`;
+            if (progressText) progressText.textContent = `Đang xử lý ảnh (${processedCount}/${files.length})...`;
 
             const isImage = (file.type && file.type.startsWith('image/')) || 
                             /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
             if (!isImage) continue;
 
             try {
-                // Nén ảnh chất lượng tối ưu cho điện thoại & máy tính
-                const base64 = await compressImage(file, 1000, 0.72);
+                // Giữ nguyên 100% độ phân giải và chất lượng ảnh gốc
+                const base64 = await processImagePreservingResolution(file);
                 if (base64) {
                     selectedImages.push(base64);
                     successCount++;
                 }
             } catch (err) {
-                Logger.log('IMAGE_COMPRESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
             }
         }
 
@@ -1531,7 +1472,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="stacked-deck-stage" id="stacked-stage-${memoryId}">
                             ${images.map((imgSrc, imgIdx) => `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
-                                    <div class="stacked-card-frame">
+                                    <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
                                         <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="lazy">
                                     </div>
                                 </div>
@@ -1561,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (totalImages === 1) {
                 // Hiển thị 1 ảnh FULL tỷ lệ
                 mediaMarkup = `
-                    <div class="w-full bg-black/5 overflow-hidden flex items-center justify-center p-3">
+                    <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
                         <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="lazy">
                     </div>
                 `;
@@ -1620,6 +1561,28 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
 
             memoriesContainer.appendChild(card);
+
+            // Bắt sự kiện click vào ảnh để mở Trình Phóng To / Thu Nhỏ (ImageViewer)
+            if (totalImages > 1) {
+                const frames = card.querySelectorAll('.stacked-card-frame');
+                frames.forEach(frame => {
+                    frame.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const idx = parseInt(frame.getAttribute('data-img-idx'), 10) || 0;
+                        const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
+                        ImageViewer.open(images, idx, item.content, sub);
+                    });
+                });
+            } else if (totalImages === 1) {
+                const singleFrame = card.querySelector(`[data-single-frame="${memoryId}"]`);
+                if (singleFrame) {
+                    singleFrame.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
+                        ImageViewer.open(images, 0, item.content, sub);
+                    });
+                }
+            }
 
             // Bắt sự kiện chuyển ảnh Slider nếu có nhiều ảnh
             if (totalImages > 1) {
@@ -1707,10 +1670,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                       /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
                         if (!isImg) continue;
                         try {
-                            const base64 = await compressImage(file, 1000, 0.72);
+                            const base64 = await processImagePreservingResolution(file);
                             if (base64) newCompressedImages.push(base64);
                         } catch (err) {
-                            Logger.log('IMAGE_COMPRESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                            Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
                         }
                     }
 
@@ -3367,12 +3330,479 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: true });
     };
 
+    // =========================================================================
+    // 16. TRÌNH XEM ẢNH TOÀN MÀN HÌNH & THU NHỎ / PHÓNG TO (IMAGE LIGHTBOX VIEWER)
+    // Giữ nguyên 100% độ phân giải gốc của ảnh, hỗ trợ đầy đủ cử chỉ di động & máy tính
+    // =========================================================================
+    const ImageViewer = {
+        isOpen: false,
+        images: [],
+        currentIndex: 0,
+        caption: '',
+        subtitle: '',
+
+        // Trạng thái phóng to / xoay / kéo
+        scale: 1,
+        minScale: 0.5,
+        maxScale: 6,
+        translateX: 0,
+        translateY: 0,
+        rotation: 0,
+        isDragging: false,
+        dragStartX: 0,
+        dragStartY: 0,
+        hasDragged: false,
+
+        // Cử chỉ cảm ứng trên điện thoại
+        touchMode: 'none', // 'none' | 'pan' | 'pinch'
+        touchStartDist: 0,
+        touchStartScale: 1,
+        touchStartX: 0,
+        touchStartY: 0,
+        touchStartTime: 0,
+        lastTapTime: 0,
+
+        // Elements
+        modal: null,
+        stage: null,
+        img: null,
+        loader: null,
+        counter: null,
+        zoomLevel: null,
+        captionEl: null,
+        subtitleEl: null,
+        btnZoomIn: null,
+        btnZoomOut: null,
+        btnZoomReset: null,
+        btnRotate: null,
+        btnDownload: null,
+        btnClose: null,
+        btnPrev: null,
+        btnNext: null,
+
+        init() {
+            this.modal = document.getElementById('modal-image-viewer');
+            if (!this.modal) return;
+
+            this.stage = document.getElementById('viewer-stage');
+            this.img = document.getElementById('viewer-image');
+            this.loader = document.getElementById('viewer-loader');
+            this.counter = document.getElementById('viewer-counter');
+            this.zoomLevel = document.getElementById('viewer-zoom-level');
+            this.captionEl = document.getElementById('viewer-caption');
+            this.subtitleEl = document.getElementById('viewer-subtitle');
+
+            this.btnZoomIn = document.getElementById('viewer-btn-zoom-in');
+            this.btnZoomOut = document.getElementById('viewer-btn-zoom-out');
+            this.btnZoomReset = document.getElementById('viewer-btn-zoom-reset');
+            this.btnRotate = document.getElementById('viewer-btn-rotate');
+            this.btnDownload = document.getElementById('viewer-btn-download');
+            this.btnClose = document.getElementById('viewer-btn-close');
+            this.btnPrev = document.getElementById('viewer-btn-prev');
+            this.btnNext = document.getElementById('viewer-btn-next');
+
+            // Gắn sự kiện các nút công cụ
+            if (this.btnZoomIn) this.btnZoomIn.addEventListener('click', (e) => { e.stopPropagation(); this.zoomIn(); });
+            if (this.btnZoomOut) this.btnZoomOut.addEventListener('click', (e) => { e.stopPropagation(); this.zoomOut(); });
+            if (this.btnZoomReset) this.btnZoomReset.addEventListener('click', (e) => { e.stopPropagation(); this.resetZoom(); });
+            if (this.btnRotate) this.btnRotate.addEventListener('click', (e) => { e.stopPropagation(); this.rotate(); });
+            if (this.btnClose) this.btnClose.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
+            if (this.btnPrev) this.btnPrev.addEventListener('click', (e) => { e.stopPropagation(); this.prev(); });
+            if (this.btnNext) this.btnNext.addEventListener('click', (e) => { e.stopPropagation(); this.next(); });
+
+            // Cuộn chuột để phóng to / thu nhỏ tại vị trí con trỏ chuột
+            if (this.stage) {
+                this.stage.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+
+                // Chuột máy tính: Kéo / Di chuyển ảnh (Pan / Drag)
+                this.stage.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+
+                // Bấm đúp vào ảnh để phóng to 2.5x hoặc trở về bình thường
+                if (this.img) {
+                    this.img.addEventListener('dblclick', (e) => {
+                        e.stopPropagation();
+                        this.toggleZoom(e.clientX, e.clientY);
+                    });
+                }
+
+                // Cảm ứng chạm trên điện thoại & tablet
+                this.stage.addEventListener('touchstart', (e) => this.onTouchStart(e), { passive: false });
+                this.stage.addEventListener('touchmove', (e) => this.onTouchMove(e), { passive: false });
+                this.stage.addEventListener('touchend', (e) => this.onTouchEnd(e), { passive: false });
+                this.stage.addEventListener('touchcancel', (e) => this.onTouchEnd(e), { passive: false });
+
+                // Khi click vào vùng trống xung quanh ảnh (khi không kéo và không zoom) thì đóng viewer
+                this.stage.addEventListener('click', (e) => {
+                    if (e.target === this.stage && !this.hasDragged && this.scale <= 1.05) {
+                        this.close();
+                    }
+                });
+            }
+
+            // Phím tắt bàn phím tiện lợi
+            window.addEventListener('keydown', (e) => {
+                if (!this.isOpen) return;
+                if (e.key === 'Escape') {
+                    this.close();
+                } else if (e.key === 'ArrowLeft') {
+                    this.prev();
+                } else if (e.key === 'ArrowRight') {
+                    this.next();
+                } else if (e.key === '+' || e.key === '=') {
+                    this.zoomIn();
+                } else if (e.key === '-' || e.key === '_') {
+                    this.zoomOut();
+                } else if (e.key === '0') {
+                    this.resetZoom();
+                } else if (e.key === 'r' || e.key === 'R') {
+                    this.rotate();
+                }
+            });
+        },
+
+        open(images, startIndex = 0, caption = '', subtitle = '') {
+            if (!images || !images.length) return;
+            this.images = Array.isArray(images) ? images : [images];
+            this.currentIndex = Math.max(0, Math.min(startIndex, this.images.length - 1));
+            this.caption = caption || '';
+            this.subtitle = subtitle || '';
+            this.isOpen = true;
+
+            // Reset trạng thái hiển thị
+            this.scale = 1;
+            this.translateX = 0;
+            this.translateY = 0;
+            this.rotation = 0;
+            this.isDragging = false;
+            this.hasDragged = false;
+
+            // Hiển thị modal
+            if (this.modal) {
+                this.modal.classList.remove('hidden');
+                // Kích hoạt transition mượt mà
+                void this.modal.offsetWidth;
+                this.modal.classList.add('is-open');
+            }
+            document.body.style.overflow = 'hidden';
+
+            this.updateImage();
+        },
+
+        close() {
+            if (!this.isOpen) return;
+            this.isOpen = false;
+            if (this.modal) {
+                this.modal.classList.remove('is-open');
+                setTimeout(() => {
+                    if (!this.isOpen && this.modal) {
+                        this.modal.classList.add('hidden');
+                        if (this.img) this.img.src = '';
+                    }
+                }, 260);
+            }
+            document.body.style.overflow = '';
+        },
+
+        updateImage() {
+            const currentSrc = this.images[this.currentIndex];
+            if (!currentSrc) return;
+
+            // Reset zoom & vị trí về trung tâm mỗi khi chuyển ảnh
+            this.scale = 1;
+            this.translateX = 0;
+            this.translateY = 0;
+            this.rotation = 0;
+            this.applyTransform(false);
+
+            // Cập nhật số thứ tự
+            if (this.counter) {
+                this.counter.textContent = `${this.currentIndex + 1} / ${this.images.length}`;
+            }
+
+            // Cập nhật phụ đề & mô tả
+            if (this.subtitleEl) {
+                this.subtitleEl.textContent = this.subtitle;
+                this.subtitleEl.style.display = this.subtitle ? 'block' : 'none';
+            }
+            if (this.captionEl) {
+                this.captionEl.textContent = this.caption ? `"${this.caption}"` : '';
+                this.captionEl.style.display = this.caption ? 'block' : 'none';
+            }
+
+            // Nút Prev/Next hiển thị khi có > 1 ảnh
+            const hasMultiple = this.images.length > 1;
+            if (this.btnPrev) this.btnPrev.style.display = hasMultiple ? 'flex' : 'none';
+            if (this.btnNext) this.btnNext.style.display = hasMultiple ? 'flex' : 'none';
+
+            // Cập nhật link tải ảnh độ phân giải gốc
+            if (this.btnDownload) {
+                this.btnDownload.href = currentSrc;
+                this.btnDownload.download = `NgocAnh-TuUyen-KyNiem-${this.currentIndex + 1}.jpg`;
+            }
+
+            // Hiển thị vòng xoay đang tải
+            if (this.loader) this.loader.classList.remove('hidden');
+
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                if (this.img && this.isOpen) {
+                    this.img.src = currentSrc;
+                    if (this.loader) this.loader.classList.add('hidden');
+                    this.applyTransform(false);
+                }
+            };
+            tempImg.onerror = () => {
+                if (this.img && this.isOpen) {
+                    this.img.src = currentSrc;
+                    if (this.loader) this.loader.classList.add('hidden');
+                }
+            };
+            tempImg.src = currentSrc;
+        },
+
+        applyTransform(animated = false) {
+            if (!this.img) return;
+            if (animated) {
+                this.img.style.transition = 'transform 0.24s cubic-bezier(0.2, 0, 0, 1)';
+            } else {
+                this.img.style.transition = 'none';
+            }
+            this.img.style.transform = `translate3d(${this.translateX}px, ${this.translateY}px, 0) scale(${this.scale}) rotate(${this.rotation}deg)`;
+
+            if (this.zoomLevel) {
+                this.zoomLevel.textContent = `${Math.round(this.scale * 100)}%`;
+            }
+
+            if (this.stage) {
+                if (this.scale > 1.05) {
+                    this.stage.classList.add('is-panning');
+                } else {
+                    this.stage.classList.remove('is-panning');
+                }
+            }
+        },
+
+        zoomIn(factor = 1.32) {
+            const nextScale = Math.min(this.maxScale, this.scale * factor);
+            this.scale = Math.round(nextScale * 100) / 100;
+            this.applyTransform(true);
+        },
+
+        zoomOut(factor = 1.32) {
+            let nextScale = Math.max(this.minScale, this.scale / factor);
+            if (Math.abs(nextScale - 1) < 0.15) {
+                nextScale = 1;
+                this.translateX = 0;
+                this.translateY = 0;
+            }
+            this.scale = Math.round(nextScale * 100) / 100;
+            this.applyTransform(true);
+        },
+
+        resetZoom() {
+            this.scale = 1;
+            this.translateX = 0;
+            this.translateY = 0;
+            this.rotation = 0;
+            this.applyTransform(true);
+        },
+
+        toggleZoom(clientX, clientY) {
+            if (this.scale > 1.1) {
+                this.resetZoom();
+            } else {
+                const targetScale = 2.5;
+                if (clientX !== undefined && clientY !== undefined && this.stage) {
+                    const rect = this.stage.getBoundingClientRect();
+                    const mouseX = clientX - (rect.left + rect.width / 2);
+                    const mouseY = clientY - (rect.top + rect.height / 2);
+                    this.translateX = mouseX - (mouseX - this.translateX) * (targetScale / this.scale);
+                    this.translateY = mouseY - (mouseY - this.translateY) * (targetScale / this.scale);
+                }
+                this.scale = targetScale;
+                this.applyTransform(true);
+            }
+        },
+
+        rotate() {
+            this.rotation = (this.rotation + 90) % 360;
+            this.applyTransform(true);
+        },
+
+        next() {
+            if (this.images.length <= 1) return;
+            this.currentIndex = (this.currentIndex + 1) % this.images.length;
+            this.updateImage();
+        },
+
+        prev() {
+            if (this.images.length <= 1) return;
+            this.currentIndex = (this.currentIndex - 1 + this.images.length) % this.images.length;
+            this.updateImage();
+        },
+
+        // Cuộn con lăn chuột tại vị trí con trỏ chuột
+        onWheel(e) {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.18 : 0.85;
+            let newScale = Math.min(this.maxScale, Math.max(this.minScale, this.scale * factor));
+
+            if (Math.abs(newScale - 1) < 0.05) {
+                newScale = 1;
+                this.translateX = 0;
+                this.translateY = 0;
+            } else if (this.stage) {
+                const rect = this.stage.getBoundingClientRect();
+                const mouseX = e.clientX - (rect.left + rect.width / 2);
+                const mouseY = e.clientY - (rect.top + rect.height / 2);
+                this.translateX = mouseX - (mouseX - this.translateX) * (newScale / this.scale);
+                this.translateY = mouseY - (mouseY - this.translateY) * (newScale / this.scale);
+            }
+
+            this.scale = Math.round(newScale * 100) / 100;
+            this.applyTransform(false);
+        },
+
+        // Kéo ảnh trên máy tính (Pan / Drag)
+        onMouseDown(e) {
+            if (!this.isOpen || e.button !== 0) return;
+            this.isDragging = true;
+            this.hasDragged = false;
+            this.dragStartX = e.clientX - this.translateX;
+            this.dragStartY = e.clientY - this.translateY;
+            if (this.stage) this.stage.classList.add('is-panning');
+        },
+
+        onMouseMove(e) {
+            if (!this.isDragging) return;
+            const newX = e.clientX - this.dragStartX;
+            const newY = e.clientY - this.dragStartY;
+            if (Math.hypot(newX - this.translateX, newY - this.translateY) > 5) {
+                this.hasDragged = true;
+            }
+            this.translateX = newX;
+            this.translateY = newY;
+            this.applyTransform(false);
+        },
+
+        onMouseUp(e) {
+            if (!this.isDragging) return;
+            this.isDragging = false;
+            if (this.stage && this.scale <= 1.05) {
+                this.stage.classList.remove('is-panning');
+            }
+        },
+
+        // Cảm ứng vuốt chạm Mobile (Pinch to zoom, Pan kéo, Vuốt sang ảnh)
+        onTouchStart(e) {
+            if (!this.isOpen) return;
+
+            if (e.touches.length === 2) {
+                // 2 ngón tay: Bắt đầu Pinch to Zoom
+                this.touchMode = 'pinch';
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                this.touchStartDist = dist || 1;
+                this.touchStartScale = this.scale;
+            } else if (e.touches.length === 1) {
+                // 1 ngón tay: Bắt đầu Pan hoặc Swipe
+                this.touchMode = 'pan';
+                const touch = e.touches[0];
+                this.touchStartX = touch.clientX;
+                this.touchStartY = touch.clientY;
+                this.touchStartTime = Date.now();
+                this.dragStartX = touch.clientX - this.translateX;
+                this.dragStartY = touch.clientY - this.translateY;
+                this.hasDragged = false;
+
+                // Bấm đúp nhanh trên màn hình điện thoại (trong 300ms)
+                const now = Date.now();
+                if (now - this.lastTapTime < 300) {
+                    e.preventDefault();
+                    this.toggleZoom(touch.clientX, touch.clientY);
+                    this.lastTapTime = 0;
+                    return;
+                }
+                this.lastTapTime = now;
+            }
+        },
+
+        onTouchMove(e) {
+            if (!this.isOpen) return;
+
+            if (this.touchMode === 'pinch' && e.touches.length === 2) {
+                e.preventDefault();
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                const ratio = dist / this.touchStartDist;
+                let newScale = Math.min(this.maxScale, Math.max(this.minScale, this.touchStartScale * ratio));
+                this.scale = Math.round(newScale * 100) / 100;
+                this.applyTransform(false);
+            } else if (this.touchMode === 'pan' && e.touches.length === 1) {
+                const touch = e.touches[0];
+                const dx = touch.clientX - this.touchStartX;
+                const dy = touch.clientY - this.touchStartY;
+
+                if (Math.hypot(dx, dy) > 8) {
+                    this.hasDragged = true;
+                }
+
+                // Khi ảnh đã phóng to: cho phép kéo lướt xem các góc chi tiết
+                if (this.scale > 1.05) {
+                    e.preventDefault();
+                    this.translateX = touch.clientX - this.dragStartX;
+                    this.translateY = touch.clientY - this.dragStartY;
+                    this.applyTransform(false);
+                }
+            }
+        },
+
+        onTouchEnd(e) {
+            if (!this.isOpen) return;
+
+            if (this.touchMode === 'pan' && this.scale <= 1.05 && e.changedTouches.length === 1) {
+                const touch = e.changedTouches[0];
+                const dx = touch.clientX - this.touchStartX;
+                const dy = touch.clientY - this.touchStartY;
+                const duration = Date.now() - this.touchStartTime;
+
+                // Vuốt ngang (Swipe) để chuyển ảnh trước / tiếp theo
+                if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && duration < 500) {
+                    if (dx < 0) {
+                        this.next();
+                    } else {
+                        this.prev();
+                    }
+                }
+            }
+
+            if (e.touches.length === 0) {
+                this.touchMode = 'none';
+            } else if (e.touches.length === 1) {
+                this.touchMode = 'pan';
+                this.dragStartX = e.touches[0].clientX - this.translateX;
+                this.dragStartY = e.touches[0].clientY - this.translateY;
+            }
+        }
+    };
+
+    // Xuất ra window để có thể gọi từ bất kỳ thành phần nào nếu cần
+    window.ImageViewer = ImageViewer;
+    window.openImageViewer = (images, startIndex, caption, subtitle) => ImageViewer.open(images, startIndex, caption, subtitle);
+
     initHeartCursorTrail();
 
     // Khởi tạo kiểm tra đăng nhập ban đầu & render bản đồ
     checkInitialLogin();
     renderVietnamMap();
     MemoryStore.initSync();
+    ImageViewer.init();
     Logger.log('APP_READY', 'Hệ thống đã khởi tạo hoàn tất');
 });
 
