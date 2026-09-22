@@ -1,7 +1,7 @@
 # =======================================================
 # MAY CHU NOI BO SIEU NHE CHO TRANG WEB KY NIEM
-# Tu dong phuc vu web & Dong bo anh thoi gian thuc 2 chieu
-# Tu dong chon cong kha dung & Ghi nhan cong cho Cloudflare Tunnel
+# Tu dong phuc vu web & Dong bo anh thoi gian thuc 2 chieu (May tinh <-> Dien thoai)
+# Tu dong luu anh vao thu muc uploads/ de trang web sieu nhe, khong bao gio tran bo nho
 # =======================================================
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -14,11 +14,23 @@ $logFile = Join-Path $folder "user_activity.log"
 $memoriesFile = Join-Path $folder "memories.json"
 $backupFile = Join-Path $folder "memories.backup.json"
 $portFile = Join-Path $folder "server_port.txt"
+$linkFile = Join-Path $folder "link_online.txt"
+$uploadsFolder = Join-Path $folder "uploads"
 
-# Theo doi phien ban du lieu may chu
+if (-not (Test-Path $uploadsFolder)) {
+    New-Item -ItemType Directory -Path $uploadsFolder -Force | Out-Null
+}
+
+# Khoi tao phien ban & so luong ky niem trong bo nho RAM
 $global:serverVersion = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$global:memoryCount = 0
+
 if (Test-Path $memoriesFile) {
     try {
+        $rawInit = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+        $parsedInit = ConvertFrom-Json $rawInit -ErrorAction SilentlyContinue
+        if ($parsedInit -is [System.Array]) { $global:memoryCount = $parsedInit.Count }
+        elseif ($parsedInit) { $global:memoryCount = 1 }
         $global:serverVersion = [System.IO.File]::GetLastWriteTimeUtc($memoriesFile).Ticks
     } catch {}
 }
@@ -53,6 +65,7 @@ foreach ($p in $portsToTry) {
     try {
         $temp = New-Object System.Net.HttpListener
         $temp.Prefixes.Add("http://localhost:$p/")
+        $temp.Prefixes.Add("http://127.0.0.1:$p/")
         $temp.Start()
         $listener = $temp
         $port = $p
@@ -74,16 +87,63 @@ if (-not $started) {
 # Ghi nhan cong dang chay de start_tunnel.ps1 dung chinh xac
 Set-Content -Path $portFile -Value "$port" -Encoding UTF8
 
+# Lay dia chi IP mang noi bo (Wifi LAN) de thiet bi khac co the truy cap truc tiep
+$localIp = ""
+try {
+    $ipObj = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback|vEthernet|Virtual' -and $_.IPAddress -notmatch '^127\.' } | Select-Object -First 1
+    if ($ipObj) { $localIp = $ipObj.IPAddress }
+} catch {}
+
+# Doc link online neu co
+$onlineLink = ""
+if (Test-Path $linkFile) {
+    try {
+        $onlineLink = (Get-Content $linkFile -Raw).Trim()
+    } catch {}
+}
+
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "   TRANG WEB KY NIEM: NGOC ANH - TU UYEN" -ForegroundColor Yellow
-Write-Host "   May chu dang chay tai: http://localhost:$port" -ForegroundColor Green
-Write-Host "   Moi log thao tac se tu dong luu vao: $logFile" -ForegroundColor Green
-Write-Host "   Da kich hoat dong bo 2 chieu (May tinh <-> Dien thoai)" -ForegroundColor Green
+Write-Host "   May chu dang chay thanh cong tren cong: $port" -ForegroundColor Green
+Write-Host "   - Tren may tinh nay:    http://localhost:$port" -ForegroundColor Cyan
+if ($localIp) {
+    Write-Host "   - Tren mang Wifi noi bo: http://${localIp}:$port" -ForegroundColor Cyan
+}
+if ($onlineLink) {
+    Write-Host "   - Link truc tuyen Cloudflare: $onlineLink" -ForegroundColor Yellow
+}
+Write-Host "   Moi anh tai len se tu dong luu vao thu muc uploads/ sieu nhe!" -ForegroundColor Green
+Write-Host "   Dong bo 2 chieu thoi gian thuc giua May tinh <-> Dien thoai da san sang." -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "Nhan Ctrl + C de dung may chu bat ky luc nao.`n"
 
 # Tu dong mo trinh duyet
 Start-Process "http://localhost:$port"
+
+# Ham ho tro boc tach va luu anh base64 thanh file vat ly trong thu muc uploads/
+function Save-Base64ToUploads($b64String, $prefixId, $idx) {
+    if (-not $b64String -or -not ($b64String -match '^data:image\/([a-zA-Z0-9]+);base64,(.+)$')) {
+        return $b64String # Neu da la duong dan file (uploads/...) thi giu nguyen
+    }
+
+    try {
+        $ext = $matches[1].ToLower()
+        if ($ext -eq 'jpeg') { $ext = 'jpg' }
+        if ($ext -notmatch '^(jpg|png|webp|gif|svg)$') { $ext = 'jpg' }
+        $data = $matches[2]
+        $bytes = [System.Convert]::FromBase64String($data)
+        
+        $safeId = [string]$prefixId -replace '[^a-zA-Z0-9_-]', ''
+        if (-not $safeId) { $safeId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+        $fileName = "img_${safeId}_${idx}_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()).$ext"
+        $filePath = Join-Path $uploadsFolder $fileName
+        
+        [System.IO.File]::WriteAllBytes($filePath, $bytes)
+        return "uploads/$fileName"
+    } catch {
+        return $b64String
+    }
+}
 
 while ($listener.IsListening) {
     try {
@@ -91,10 +151,11 @@ while ($listener.IsListening) {
         $request = $context.Request
         $response = $context.Response
 
-        # Cho phep CORS toan dien cho may tinh & dien thoai (Cloudflare Tunnel)
+        # Cho phep CORS toan dien cho may tinh & dien thoai & Cloudflare Tunnel
         $response.Headers.Add("Access-Control-Allow-Origin", "*")
-        $response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Pragma, Authorization, X-Requested-With")
+        $response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
+        $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Pragma, Authorization, X-Requested-With, X-Server-Version")
+        $response.Headers.Add("Access-Control-Expose-Headers", "X-Server-Version")
         $response.Headers.Add("Access-Control-Max-Age", "86400")
 
         if ($request.HttpMethod -eq "OPTIONS") {
@@ -104,21 +165,12 @@ while ($listener.IsListening) {
             continue
         }
 
-        # 1. XU LY API KIEM TRA PHIEN BAN SIEU NHE (/api/version) - Danh cho auto-sync ~30 bytes
+        # 1. API KIEM TRA PHIEN BAN SIEU NHE (/api/version) - Duoi 40 bytes, phan hoi 0.5ms
         if ($request.Url.AbsolutePath -eq "/api/version" -and $request.HttpMethod -eq "GET") {
-            $count = 0
-            if (Test-Path $memoriesFile) {
-                try {
-                    $existingJson = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
-                    $parsed = ConvertFrom-Json $existingJson -ErrorAction SilentlyContinue
-                    if ($parsed -is [System.Array]) { $count = $parsed.Count }
-                    elseif ($parsed) { $count = 1 }
-                } catch {}
-            }
             $vObj = @{
                 status = "ok"
                 version = [string]$global:serverVersion
-                count = $count
+                count = $global:memoryCount
             }
             $vJson = ConvertTo-Json $vObj -Compress
             $vBuffer = [System.Text.Encoding]::UTF8.GetBytes($vJson)
@@ -134,7 +186,44 @@ while ($listener.IsListening) {
             continue
         }
 
-        # 2. XU LY API GHI LOG TU TRINH DUYET (/api/log)
+        # 2. API TAI ANH RIENG LE SIEU TOC (/api/upload)
+        if ($request.Url.AbsolutePath -eq "/api/upload" -and $request.HttpMethod -eq "POST") {
+            $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+            $body = $reader.ReadToEnd()
+            $reader.Close()
+
+            $savedUrls = [System.Collections.Generic.List[string]]::new()
+            try {
+                $upData = ConvertFrom-Json $body -ErrorAction Stop
+                if ($upData -is [PSCustomObject] -and $upData.PSObject.Properties['image']) {
+                    $u = Save-Base64ToUploads $upData.image "up" 0
+                    $savedUrls.Add($u)
+                } elseif ($upData -is [PSCustomObject] -and $upData.PSObject.Properties['images']) {
+                    $idx = 0
+                    foreach ($img in $upData.images) {
+                        $u = Save-Base64ToUploads $img "up" $idx
+                        $savedUrls.Add($u)
+                        $idx++
+                    }
+                }
+            } catch {}
+
+            $resObj = @{
+                status = "ok"
+                urls = $savedUrls
+                url = if ($savedUrls.Count -gt 0) { $savedUrls[0] } else { "" }
+            }
+            $resJson = ConvertTo-Json $resObj -Compress
+            $resBuf = [System.Text.Encoding]::UTF8.GetBytes($resJson)
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.StatusCode = 200
+            $response.ContentLength64 = $resBuf.Length
+            $response.OutputStream.Write($resBuf, 0, $resBuf.Length)
+            $response.Close()
+            continue
+        }
+
+        # 3. API GHI LOG TU TRINH DUYET (/api/log)
         if ($request.Url.AbsolutePath -eq "/api/log" -and $request.HttpMethod -eq "POST") {
             $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
             $logContent = $reader.ReadToEnd()
@@ -154,7 +243,7 @@ while ($listener.IsListening) {
             continue
         }
 
-        # 3. XU LY API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
+        # 4. API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
         if ($request.Url.AbsolutePath -eq "/api/memories") {
             if ($request.HttpMethod -eq "GET") {
                 $content = "[]"
@@ -163,10 +252,11 @@ while ($listener.IsListening) {
                 }
                 $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
 
-                # Chong cache tuyet doi de dien thoai luon nhan anh moi nhat
+                # Chong cache tuyet doi de dien thoai luon nhan ky niem moi nhat
                 $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
                 $response.Headers.Add("Pragma", "no-cache")
                 $response.Headers.Add("Expires", "0")
+                $response.Headers.Add("X-Server-Version", [string]$global:serverVersion)
                 $response.StatusCode = 200
                 $response.ContentType = "application/json; charset=utf-8"
                 $response.ContentLength64 = $buffer.Length
@@ -221,12 +311,12 @@ while ($listener.IsListening) {
                         } catch {}
                     }
 
-                    # Tu dong sao luu du phong truoc khi ghi de
+                    # Sao luu du phong
                     if (Test-Path $memoriesFile) {
                         Copy-Item -Path $memoriesFile -Destination $backupFile -Force -ErrorAction SilentlyContinue
                     }
 
-                    # Hashtable luu tru theo ID
+                    # Bang tra cuu memories theo ID dung Hashtable tuyet doi khong loi
                     $memoryMap = [System.Collections.Specialized.OrderedDictionary]::new()
                     foreach ($m in $currentMemories) {
                         if ($m -and $m.id) {
@@ -237,57 +327,87 @@ while ($listener.IsListening) {
                         }
                     }
 
-                    # Merge thong minh danh sach gui len
+                    # Xu ly merge danh sach gui len & chuyen anh base64 thanh file uploads
                     foreach ($inItem in $incomingMemories) {
                         if (-not $inItem -or -not $inItem.id) { continue }
                         $idStr = [string]$inItem.id
                         if ($deletedIds -contains $idStr) { continue }
 
+                        # Chuyen tat ca anh base64 cua inItem thanh file uploads/
+                        $cleanInImgs = [System.Collections.Generic.List[string]]::new()
+                        $rawImgs = @()
+                        if ($inItem.PSObject.Properties['images'] -and $inItem.images) {
+                            $rawImgs = $inItem.images
+                        } elseif ($inItem.PSObject.Properties['image'] -and $inItem.image) {
+                            $rawImgs = @($inItem.image)
+                        }
+                        
+                        $imgIdx = 0
+                        foreach ($img in $rawImgs) {
+                            if ($img) {
+                                $savedPath = Save-Base64ToUploads $img $idStr $imgIdx
+                                $cleanInImgs.Add($savedPath)
+                                $imgIdx++
+                            }
+                        }
+
                         if ($memoryMap.Contains($idStr)) {
                             $existing = $memoryMap[$idStr]
-                            
-                            # Hop nhat anh (union khong trung lap)
+
+                            # Hop nhat anh (khong trung lap)
                             $mergedImgs = [System.Collections.Generic.List[string]]::new()
                             $seenImgs = [System.Collections.Generic.HashSet[string]]::new()
 
-                            if ($existing.images) {
-                                foreach ($img in $existing.images) {
-                                    if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
-                                }
-                            } elseif ($existing.image -and $seenImgs.Add($existing.image)) {
-                                $mergedImgs.Add($existing.image)
+                            # Lay anh cu
+                            $exImgs = @()
+                            if ($existing.PSObject.Properties['images'] -and $existing.images) {
+                                $exImgs = $existing.images
+                            } elseif ($existing.PSObject.Properties['image'] -and $existing.image) {
+                                $exImgs = @($existing.image)
+                            }
+                            foreach ($img in $exImgs) {
+                                if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
                             }
 
-                            if ($inItem.images) {
-                                foreach ($img in $inItem.images) {
-                                    if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
-                                }
-                            } elseif ($inItem.image -and $seenImgs.Add($inItem.image)) {
-                                $mergedImgs.Add($inItem.image)
+                            # Bo sung anh moi
+                            foreach ($img in $cleanInImgs) {
+                                if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
                             }
 
-                            $existing.images = @($mergedImgs)
-
-                            if ($inItem.content) { $existing.content = $inItem.content }
-                            if ($inItem.location) { $existing.location = $inItem.location }
-                            if ($inItem.date) { $existing.date = $inItem.date }
-                            if ($inItem.createdAt -and -not $existing.createdAt) { $existing.createdAt = $inItem.createdAt }
-
-                            $memoryMap[$idStr] = $existing
+                            # Tao object hop nhat moi an toan tuyet doi
+                            $updatedObj = [PSCustomObject]@{
+                                id = $idStr
+                                images = @($mergedImgs)
+                                content = if ($inItem.content) { $inItem.content } else { $existing.content }
+                                location = if ($inItem.location) { $inItem.location } else { $existing.location }
+                                date = if ($inItem.date) { $inItem.date } else { $existing.date }
+                                createdAt = if ($inItem.createdAt) { $inItem.createdAt } elseif ($existing.createdAt) { $existing.createdAt } else { [DateTime]::UtcNow.ToString("o") }
+                            }
+                            $memoryMap[$idStr] = $updatedObj
                         } else {
-                            $memoryMap[$idStr] = $inItem
+                            $newObj = [PSCustomObject]@{
+                                id = $idStr
+                                images = @($cleanInImgs)
+                                content = [string]$inItem.content
+                                location = [string]$inItem.location
+                                date = [string]$inItem.date
+                                createdAt = if ($inItem.createdAt) { [string]$inItem.createdAt } else { [DateTime]::UtcNow.ToString("o") }
+                            }
+                            $memoryMap[$idStr] = $newObj
                         }
                     }
 
                     $finalList = @($memoryMap.Values)
                     $sortedList = @($finalList | Sort-Object -Property @{Expression={ if ($_.date) { $_.date } else { $_.createdAt } }} -Descending)
 
-                    $finalJson = ConvertTo-Json -InputObject $sortedList -Depth 10 -Compress
+                    # Luu vao memories.json duoi dang mang chuan
+                    $finalJson = ConvertTo-Json -InputObject @($sortedList) -Depth 10 -Compress
                     [System.IO.File]::WriteAllText($memoriesFile, $finalJson, [System.Text.Encoding]::UTF8)
 
                     $global:serverVersion = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                    $global:memoryCount = $sortedList.Count
 
-                    Write-Host "[MEMORIES] Dong bo 2 chieu thanh cong: $($sortedList.Count) ky niem (Phien ban: $global:serverVersion)" -ForegroundColor Green
+                    Write-Host "[MEMORIES] Dong bo thanh cong: $($sortedList.Count) ky niem (Phien ban: $global:serverVersion)" -ForegroundColor Green
 
                     $resObj = @{
                         status = "ok"
@@ -299,6 +419,7 @@ while ($listener.IsListening) {
                     $buffer = [System.Text.Encoding]::UTF8.GetBytes($resJson)
 
                     $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                    $response.Headers.Add("X-Server-Version", [string]$global:serverVersion)
                     $response.StatusCode = 200
                     $response.ContentType = "application/json; charset=utf-8"
                     $response.ContentLength64 = $buffer.Length
@@ -318,12 +439,14 @@ while ($listener.IsListening) {
             }
         }
 
-        # 4. PHUC VU STATIC FILES (index.html, style.css, script.js...)
-        $urlPath = $request.Url.AbsolutePath.TrimStart('/')
-        if ([string]::IsNullOrEmpty($urlPath)) {
-            $urlPath = "index.html"
+        # 5. PHUC VU STATIC FILES (index.html, style.css, script.js, uploads/...)
+        $rawPath = $request.Url.AbsolutePath.TrimStart('/')
+        if ([string]::IsNullOrEmpty($rawPath)) {
+            $rawPath = "index.html"
         }
 
+        # Giai ma ky tu URL (vd %20 thanh khoang trang)
+        $urlPath = [System.Uri]::UnescapeDataString($rawPath).Replace('/', '\')
         $filePath = Join-Path $folder $urlPath
 
         if (Test-Path $filePath -PathType Leaf) {
@@ -331,14 +454,46 @@ while ($listener.IsListening) {
             
             $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
             switch ($ext) {
-                ".html" { $response.ContentType = "text/html; charset=utf-8" }
-                ".css"  { $response.ContentType = "text/css; charset=utf-8" }
-                ".js"   { $response.ContentType = "application/javascript; charset=utf-8" }
-                ".png"  { $response.ContentType = "image/png" }
-                ".jpg"  { $response.ContentType = "image/jpeg" }
-                ".jpeg" { $response.ContentType = "image/jpeg" }
-                ".webp" { $response.ContentType = "image/webp" }
-                ".svg"  { $response.ContentType = "image/svg+xml" }
+                ".html" { 
+                    $response.ContentType = "text/html; charset=utf-8"
+                    $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                }
+                ".css"  { 
+                    $response.ContentType = "text/css; charset=utf-8"
+                    $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                }
+                ".js"   { 
+                    $response.ContentType = "application/javascript; charset=utf-8"
+                    $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                }
+                ".json" {
+                    $response.ContentType = "application/json; charset=utf-8"
+                    $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                }
+                ".png"  { 
+                    $response.ContentType = "image/png"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".jpg"  { 
+                    $response.ContentType = "image/jpeg"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".jpeg" { 
+                    $response.ContentType = "image/jpeg"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".webp" { 
+                    $response.ContentType = "image/webp"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".svg"  { 
+                    $response.ContentType = "image/svg+xml"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".gif"  { 
+                    $response.ContentType = "image/gif"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
                 default { $response.ContentType = "application/octet-stream" }
             }
 

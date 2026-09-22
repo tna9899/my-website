@@ -276,8 +276,22 @@ document.addEventListener('DOMContentLoaded', () => {
         versionKey: 'weddingMemoriesVersion',
         _cache: null,
         _version: 0,
-        _isSyncing: false,
+        _isPushing: false,
+        _isFetching: false,
+        _pendingPush: null,
         _pollTimer: null,
+
+        getEndpoints(path) {
+            const list = [path];
+            if (window.location.origin && window.location.origin.startsWith('http')) {
+                list.push(`${window.location.origin}${path}`);
+            }
+            if (!window.location.origin || window.location.origin.includes('localhost') || window.location.origin === 'null') {
+                list.push(`http://localhost:8080${path}`);
+                list.push(`http://127.0.0.1:8080${path}`);
+            }
+            return [...new Set(list)];
+        },
 
         getDeletedIds() {
             try {
@@ -323,19 +337,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 Logger.log('STORAGE_QUOTA_NOTICE', 'LocalStorage đã đầy, chuyển lưu an toàn qua IndexedDB & Server');
             }
 
-            // 2. Lưu vào IndexedDB (không lo giới hạn dung lượng trên điện thoại)
+            // 2. Lưu vào IndexedDB
             try {
                 await IDBStorage.saveAll(memories);
             } catch (e) {}
 
-            // 3. Đồng bộ lên Server nội bộ (có merge thông minh và chống ghi đè)
+            // 3. Đồng bộ lên Server nội bộ
             const syncResult = await this.syncToServer(memories);
             return syncResult;
         },
 
         async syncToServer(memoriesToSend) {
-            if (this._isSyncing) return true;
-            this._isSyncing = true;
+            if (this._isPushing) {
+                this._pendingPush = memoriesToSend || this.getAll();
+                return true;
+            }
+            this._isPushing = true;
             updateSyncStatusUI('syncing');
 
             const list = memoriesToSend || this.getAll();
@@ -346,17 +363,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 deletedIds: deletedIds
             };
 
-            const endpoints = ['/api/memories'];
-            if (window.location.origin && window.location.origin.startsWith('http')) {
-                endpoints.unshift(`${window.location.origin}/api/memories`);
-            }
-            endpoints.push('http://localhost:8080/api/memories');
-
-            const uniqueEndpoints = [...new Set(endpoints)];
+            const endpoints = this.getEndpoints('/api/memories');
             let success = false;
 
-            for (const ep of uniqueEndpoints) {
+            for (const ep of endpoints) {
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
                     const resp = await fetch(ep, {
                         method: 'POST',
                         headers: {
@@ -364,8 +378,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             'Cache-Control': 'no-cache, no-store'
                         },
                         body: JSON.stringify(payload),
-                        mode: 'cors'
+                        mode: 'cors',
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
 
                     if (resp.ok) {
                         const data = await resp.json();
@@ -390,7 +406,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) {}
             }
 
-            this._isSyncing = false;
+            this._isPushing = false;
+
+            if (this._pendingPush) {
+                const nextData = this._pendingPush;
+                this._pendingPush = null;
+                return await this.syncToServer(nextData);
+            }
+
             if (!success) {
                 updateSyncStatusUI('error');
             }
@@ -398,28 +421,38 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async fetchLatestFromServer() {
-            if (this._isSyncing) return false;
-            this._isSyncing = true;
+            if (this._isFetching) return false;
+            this._isFetching = true;
             updateSyncStatusUI('syncing');
 
-            const endpoints = ['/api/memories'];
-            if (window.location.origin && window.location.origin.startsWith('http')) {
-                endpoints.unshift(`${window.location.origin}/api/memories`);
-            }
-            endpoints.push('http://localhost:8080/api/memories');
-            const uniqueEndpoints = [...new Set(endpoints)];
-
+            const endpoints = this.getEndpoints('/api/memories');
             let updated = false;
-            for (const ep of uniqueEndpoints) {
+
+            for (const ep of endpoints) {
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
                     const url = `${ep}?_t=${Date.now()}`;
                     const resp = await fetch(url, {
                         mode: 'cors',
                         cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                        headers: { 'Cache-Control': 'no-cache, no-store' },
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
+
                     if (resp.ok) {
-                        const serverMemories = await resp.json();
+                        const serverVer = resp.headers.get('X-Server-Version');
+                        const data = await resp.json();
+                        const serverMemories = Array.isArray(data) ? data : (data.memories || []);
+                        const newVer = (data && data.version) || serverVer;
+
+                        if (newVer) {
+                            this._version = String(newVer);
+                            try { localStorage.setItem(this.versionKey, this._version); } catch (e) {}
+                        }
+
                         if (Array.isArray(serverMemories)) {
                             const merged = this.mergeWithLocal(serverMemories);
                             this._cache = merged;
@@ -428,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             if (typeof renderMemories === 'function') renderMemories();
                             if (typeof renderVietnamMap === 'function') renderVietnamMap();
+
                             if (merged.length > serverMemories.length) {
                                 setTimeout(() => this.syncToServer(merged), 200);
                             }
@@ -439,8 +473,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) {}
             }
 
-            this._isSyncing = false;
-            if (!updated) {
+            this._isFetching = false;
+            if (!updated && !this._isPushing) {
                 updateSyncStatusUI('error');
             }
             return updated;
@@ -451,12 +485,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const localMemories = this.getAll();
             const map = new Map();
 
+            // 1. Nạp danh sách server trước
             for (const item of serverMemories) {
                 if (!item || !item.id) continue;
                 if (deletedIds.includes(String(item.id))) continue;
                 map.set(String(item.id), { ...item });
             }
 
+            // 2. Bổ sung các kỷ niệm mới ở máy local chưa kịp sync lên
             for (const localItem of localMemories) {
                 if (!localItem || !localItem.id) continue;
                 const idStr = String(localItem.id);
@@ -466,7 +502,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const serverItem = map.get(idStr);
                     const serverImgs = serverItem.images || (serverItem.image ? [serverItem.image] : []);
                     const localImgs = localItem.images || (localItem.image ? [localItem.image] : []);
-                    const combined = [...new Set([...serverImgs, ...localImgs])];
+                    
+                    const combined = [...serverImgs];
+                    for (const lImg of localImgs) {
+                        if (!combined.includes(lImg)) {
+                            combined.push(lImg);
+                        }
+                    }
                     serverItem.images = combined;
                     map.set(idStr, serverItem);
                 } else {
@@ -484,23 +526,24 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async checkServerVersionAndSync() {
-            if (this._isSyncing) return;
+            if (this._isFetching || this._isPushing) return;
 
-            const endpoints = ['/api/version'];
-            if (window.location.origin && window.location.origin.startsWith('http')) {
-                endpoints.unshift(`${window.location.origin}/api/version`);
-            }
-            endpoints.push('http://localhost:8080/api/version');
-            const uniqueEndpoints = [...new Set(endpoints)];
+            const endpoints = this.getEndpoints('/api/version');
 
-            for (const ep of uniqueEndpoints) {
+            for (const ep of endpoints) {
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
                     const url = `${ep}?_t=${Date.now()}`;
                     const resp = await fetch(url, {
                         mode: 'cors',
                         cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                        headers: { 'Cache-Control': 'no-cache, no-store' },
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
+
                     if (resp.ok) {
                         const data = await resp.json();
                         if (data && data.status === 'ok') {
@@ -508,8 +551,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             const currentLocalCount = (this._cache || []).length;
 
                             if (sVersion !== String(this._version) || data.count !== currentLocalCount) {
-                                this._version = sVersion;
-                                try { localStorage.setItem(this.versionKey, sVersion); } catch (e) {}
                                 await this.fetchLatestFromServer();
                             } else {
                                 updateSyncStatusUI('synced');
@@ -519,7 +560,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } catch (e) {}
             }
-            updateSyncStatusUI('error');
+            if (!this._isPushing) {
+                updateSyncStatusUI('error');
+            }
         },
 
         async initSync() {
@@ -540,7 +583,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!this._pollTimer) {
                 this._pollTimer = setInterval(() => {
                     this.checkServerVersionAndSync();
-                }, 3500);
+                }, 3000);
             }
 
             document.addEventListener('visibilitychange', () => {
@@ -717,6 +760,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 reader.readAsDataURL(file);
             }
         });
+    };
+
+    // Hàm tải ảnh trực tiếp lên máy chủ nội bộ vào thư mục uploads/ (giúp ứng dụng siêu nhẹ)
+    const uploadImagesToServer = async (imagesArray) => {
+        if (!imagesArray || !imagesArray.length) return [];
+        const results = [];
+        const endpoints = MemoryStore.getEndpoints('/api/upload');
+        for (let i = 0; i < imagesArray.length; i++) {
+            const img = imagesArray[i];
+            if (img && img.startsWith('data:image/')) {
+                let uploadedUrl = null;
+                for (const ep of endpoints) {
+                    try {
+                        const controller = new AbortController();
+                        const toId = setTimeout(() => controller.abort(), 10000);
+                        const resp = await fetch(ep, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json;charset=utf-8' },
+                            body: JSON.stringify({ image: img }),
+                            mode: 'cors',
+                            signal: controller.signal
+                        });
+                        clearTimeout(toId);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.status === 'ok' && data.url) {
+                                uploadedUrl = data.url;
+                                break;
+                            }
+                        }
+                    } catch (e) {}
+                }
+                results.push(uploadedUrl || img);
+            } else {
+                results.push(img);
+            }
+        }
+        return results;
     };
 
     // =========================================================================
@@ -1269,9 +1350,12 @@ document.addEventListener('DOMContentLoaded', () => {
             <span>Đang lưu và đồng bộ lên máy tính & điện thoại...</span>
         `;
 
+        // Tải ảnh trực tiếp lên máy chủ để tối ưu bộ nhớ
+        const finalImages = await uploadImagesToServer(selectedImages);
+
         const newMemory = {
             id: Date.now().toString(),
-            images: [...selectedImages],
+            images: finalImages,
             content: content,
             location: location,
             date: date,
@@ -1632,13 +1716,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (newCompressedImages.length) {
                         btnText.textContent = 'Đang đồng bộ...';
+                        const finalUploadedUrls = await uploadImagesToServer(newCompressedImages);
                         const memories = MemoryStore.getAll();
                         const targetItem = memories.find(m => String(m.id) === String(memoryId));
                         if (targetItem) {
                             if (!targetItem.images) {
                                 targetItem.images = targetItem.image ? [targetItem.image] : [];
                             }
-                            targetItem.images.push(...newCompressedImages);
+                            targetItem.images.push(...finalUploadedUrls);
                             const synced = await MemoryStore.saveAll(memories);
                             Logger.log('ADD_PHOTOS_TO_ALBUM', `Đã thêm ${newCompressedImages.length} ảnh vào album ID: ${memoryId}`);
                             renderMemories();
