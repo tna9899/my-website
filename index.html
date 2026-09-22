@@ -28,7 +28,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                 </div>
-                <h3 class="font-great-vibes text-4xl text-rose-600 mb-1">Ngọc Ánh & Tú Uyên</h3>
+                <h3 class="font-great-vibes text-3xl sm:text-4xl text-rose-600 mb-1 font-normal overflow-visible leading-normal py-0.5">Ngọc Ánh & Tú Uyên</h3>
                 <p class="font-playfair italic text-gray-700 font-bold text-base">Đăng Nhập Chủ Nhân</p>
                 <p id="login-modal-subtitle" class="text-xs text-gray-500 mt-1">Đăng nhập tài khoản để có toàn quyền thêm, sửa và xóa ảnh kỷ niệm</p>
             </div>
@@ -154,14 +154,14 @@
         
         <!-- THANH ĐIỀU HƯỚNG (NAVBAR) -->
         <nav class="bg-white/90 backdrop-blur-md shadow-sm sticky top-0 z-40 border-b border-rose-50/60">
-            <div class="max-w-5xl mx-auto px-4 sm:px-6">
+            <div class="max-w-5xl mx-auto px-3 sm:px-6">
                 <div class="flex justify-between items-center h-16">
                     
                     <!-- Nhóm Trái: Nút 3 gạch & Tên thương hiệu -->
-                    <div class="flex items-center space-x-3">
+                    <div class="flex items-center space-x-1.5 sm:space-x-3 flex-shrink-0 min-w-0">
                         <!-- Nút Menu 3 gạch (Hamburger) -->
-                        <div class="relative">
-                            <button id="btn-hamburger" class="p-2 rounded-xl text-gray-600 hover:text-rose-600 hover:bg-rose-50/60 transition-colors focus:outline-none" title="Menu chức năng">
+                        <div class="relative flex-shrink-0">
+                            <button id="btn-hamburger" class="p-1.5 sm:p-2 rounded-xl text-gray-600 hover:text-rose-600 hover:bg-rose-50/60 transition-colors focus:outline-none cursor-pointer" title="Menu chức năng">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                                 </svg>
@@ -194,7 +194,7 @@
                         </div>
 
                         <!-- Tên Tiêu Đề -->
-                        <span class="font-great-vibes text-3xl md:text-4xl text-rose-600 font-bold select-none cursor-pointer" id="brand-title">
+                        <span class="font-great-vibes text-rose-600 font-normal select-none cursor-pointer whitespace-nowrap overflow-visible leading-none tracking-normal" id="brand-title">
                             Ngọc Ánh & Tú Uyên
                         </span>
                     </div>
@@ -213,23 +213,23 @@
                     </div>
 
                     <!-- Nhóm Phải: Trạng thái Khách (Xem) hoặc Chủ nhân (Đăng nhập) -->
-                    <div class="flex items-center space-x-2">
+                    <div class="flex items-center space-x-1.5 sm:space-x-2 flex-shrink-0">
                         <!-- Nút Trạng Thái Đồng Bộ (Live Sync Indicator) -->
-                        <button id="sync-status-btn" type="button" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-50 hover:bg-rose-50 text-gray-600 hover:text-rose-600 border border-gray-200/80 hover:border-rose-200 transition-all cursor-pointer shadow-2xs" title="Dữ liệu đồng bộ giữa Máy tính & Điện thoại. Bấm để làm mới ngay.">
-                            <span id="sync-status-dot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <button id="sync-status-btn" type="button" class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-xs font-medium bg-gray-50 hover:bg-rose-50 text-gray-600 hover:text-rose-600 border border-gray-200/80 hover:border-rose-200 transition-all cursor-pointer shadow-2xs flex-shrink-0" title="Dữ liệu đồng bộ giữa Máy tính & Điện thoại. Bấm để làm mới ngay.">
+                            <span id="sync-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></span>
                             <span id="sync-status-text" class="hidden sm:inline text-emerald-600 font-medium">Đã đồng bộ</span>
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-gray-400 hidden sm:inline flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
                         </button>
 
                         <!-- Trạng thái KHÁCH XEM (Hiển thị khi chưa đăng nhập) -->
-                        <div id="guest-nav-controls" class="flex items-center space-x-2">
+                        <div id="guest-nav-controls" class="flex items-center space-x-1.5 sm:space-x-2 flex-shrink-0">
                             <span class="hidden md:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/80 shadow-2xs">
                                 👀 Chế độ xem
                             </span>
-                            <button id="nav-login-btn" type="button" class="flex items-center space-x-1.5 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white px-3.5 py-1.5 rounded-2xl text-xs md:text-sm font-bold shadow-xs hover:shadow-md transition-all active:scale-95 cursor-pointer" title="Đăng nhập tài khoản Chủ Nhân">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <button id="nav-login-btn" type="button" class="flex items-center space-x-1 sm:space-x-1.5 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white px-2.5 sm:px-3.5 py-1.5 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-semibold sm:font-bold shadow-xs hover:shadow-md transition-all active:scale-95 cursor-pointer flex-shrink-0" title="Đăng nhập tài khoản Chủ Nhân">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
                                 </svg>
                                 <span>Đăng Nhập</span>
@@ -237,20 +237,20 @@
                         </div>
 
                         <!-- Trạng thái CHỦ NHÂN (Hiển thị khi đã đăng nhập) -->
-                        <div id="owner-nav-controls" class="hidden flex items-center space-x-2">
+                        <div id="owner-nav-controls" class="hidden flex items-center space-x-1.5 sm:space-x-2 flex-shrink-0">
                             <span class="hidden md:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                                 👑 Chủ Nhân
                             </span>
-                            <div class="user-menu-wrapper relative py-2">
-                                <div id="user-dropdown-toggle" class="flex items-center space-x-2 bg-rose-50/70 hover:bg-rose-100/70 border border-rose-200/60 px-3 py-1.5 rounded-2xl cursor-pointer transition-colors select-none">
-                                    <div class="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                            <div class="user-menu-wrapper relative py-2 flex-shrink-0">
+                                <div id="user-dropdown-toggle" class="flex items-center space-x-1.5 sm:space-x-2 bg-rose-50/70 hover:bg-rose-100/70 border border-rose-200/60 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl sm:rounded-2xl cursor-pointer transition-colors select-none flex-shrink-0">
+                                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs shadow-sm flex-shrink-0">
                                         AU
                                     </div>
-                                    <div class="flex flex-col text-left">
+                                    <div class="hidden sm:flex flex-col text-left">
                                         <span id="current-user-display" class="text-xs md:text-sm font-bold text-gray-800 leading-tight">Chủ nhân</span>
                                         <span class="text-[10px] text-rose-500 font-semibold leading-none">Toàn quyền</span>
                                     </div>
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-gray-400 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-gray-400 ml-0.5 sm:ml-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                                     </svg>
                                 </div>

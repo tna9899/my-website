@@ -1,6 +1,51 @@
-/* Cài đặt Font chữ */
+/* =================================================== */
+/* CÀI ĐẶT FONT CHỮ VÀ HIỂN THỊ NÉT CHỮ NGHỆ THUẬT TIẾNG VIỆT */
+/* =================================================== */
 .font-great-vibes {
-    font-family: 'Great Vibes', cursive;
+    font-family: 'Great Vibes', 'Playfair Display', cursive, serif;
+    font-weight: 400 !important; /* Luôn giữ 400 chuẩn, không áp dụng synthetic bold để giữ nguyên vẹn các nét uốn và dấu tiếng Việt */
+    font-style: normal;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tiêu đề thương hiệu trên thanh công cụ (Navbar Brand Title) */
+#brand-title {
+    display: inline-flex;
+    align-items: center;
+    font-size: 1.4rem; /* ~22.4px trên điện thoại nhỏ để luôn vừa trên 1 dòng */
+    white-space: nowrap !important;
+    overflow: visible !important;
+    line-height: 1.35 !important; /* Đảm bảo đủ chiều cao cho dấu sắc 'Á', dấu nón 'ê', dấu nặng 'ọ' */
+    padding: 4px 6px 6px 4px; /* Chừa lề tránh bị cắt nét cong chữ N và đuôi chữ n */
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    transform: translateZ(0); /* Kích hoạt hardware acceleration chống răng cưa và chống clipping trên iOS Safari */
+    text-shadow: 0 0.5px 1px rgba(244, 63, 94, 0.15);
+    transition: transform 0.2s ease, color 0.2s ease;
+}
+
+#brand-title:hover {
+    transform: translateZ(0) scale(1.02);
+}
+
+@media (min-width: 400px) {
+    #brand-title {
+        font-size: 1.6rem; /* ~25.6px */
+    }
+}
+
+@media (min-width: 640px) {
+    #brand-title {
+        font-size: 1.875rem; /* 30px */
+    }
+}
+
+@media (min-width: 768px) {
+    #brand-title {
+        font-size: 2.25rem; /* 36px */
+    }
 }
 
 .font-playfair {
