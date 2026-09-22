@@ -36,12 +36,23 @@
             <div class="space-y-4">
                 <div>
                     <label for="username" class="block text-xs font-bold text-gray-700 mb-1">Tài khoản</label>
-                    <input type="text" id="username" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white" placeholder="Nhập tài khoản..." autocomplete="username">
+                    <input type="text" id="username" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white" placeholder="Nhập tài khoản..." autocomplete="username" value="anhuyen">
                 </div>
                 <div>
-                    <label for="password" class="block text-xs font-bold text-gray-700 mb-1">Mật khẩu</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="password" class="block text-xs font-bold text-gray-700">Mật khẩu</label>
+                        <span class="text-[10px] text-rose-500 font-medium">Mặc định: anhuyen</span>
+                    </div>
                     <input type="password" id="password" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white" placeholder="Nhập mật khẩu..." autocomplete="current-password">
                 </div>
+                
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="remember-login" class="w-4 h-4 text-rose-600 rounded border-gray-300 focus:ring-rose-400 cursor-pointer" checked>
+                    <label for="remember-login" class="text-xs text-gray-600 cursor-pointer select-none">
+                        Ghi nhớ đăng nhập trên thiết bị này
+                    </label>
+                </div>
+
                 <div id="login-error" class="text-red-500 text-xs hidden text-center font-semibold bg-red-50 py-2 rounded-xl border border-red-100">
                     Tài khoản hoặc mật khẩu không chính xác!
                 </div>
@@ -52,6 +63,89 @@
                     Chỉ dành riêng cho hai bạn. Khách xem bình thường không cần đăng nhập.
                 </p>
             </div>
+        </div>
+    </div>
+
+    <!-- ================= MODAL CHỈNH SỬA KỶ NIỆM (CHO CHỦ NHÂN TRÊN ĐIỆN THOẠI & MÁY TÍNH) ================= -->
+    <div id="modal-edit-memory" class="modal-overlay hidden">
+        <div class="modal-content p-5 sm:p-7 relative max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <button id="close-modal-edit-memory" type="button" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-xl font-bold p-1 cursor-pointer" title="Đóng">
+                ✕
+            </button>
+            
+            <div class="flex items-center space-x-3 mb-5 pb-3 border-b border-rose-100">
+                <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-lg flex-shrink-0">
+                    ✏️
+                </div>
+                <div>
+                    <h3 class="font-bold text-gray-800 text-base">Chỉnh Sửa Kỷ Niệm</h3>
+                    <p class="text-xs text-gray-500">Cập nhật lời nhắn, ngày tháng, địa điểm hoặc thêm/xóa ảnh</p>
+                </div>
+            </div>
+            
+            <form id="form-edit-memory" class="space-y-4" onsubmit="return false;">
+                <input type="hidden" id="edit-memory-id" value="">
+                
+                <!-- Lời nhắn kỷ niệm -->
+                <div>
+                    <label for="edit-memory-content" class="block text-xs font-bold text-gray-700 mb-1">
+                        Lời nhắn / Tâm sự tình yêu:
+                    </label>
+                    <textarea id="edit-memory-content" rows="3" class="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white font-playfair italic resize-none" placeholder="Những lời yêu thương ngọt ngào..."></textarea>
+                </div>
+
+                <!-- Ngày tháng & Địa điểm -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label for="edit-memory-date" class="block text-xs font-bold text-gray-700 mb-1">
+                            Ngày kỷ niệm:
+                        </label>
+                        <input type="date" id="edit-memory-date" class="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-xs bg-white">
+                    </div>
+                    <div>
+                        <label for="edit-memory-location" class="block text-xs font-bold text-gray-700 mb-1">
+                            Địa điểm (Tỉnh/Thành/Địa danh):
+                        </label>
+                        <input type="text" id="edit-memory-location" class="w-full px-3 py-2 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-xs bg-white" placeholder="vd: Đà Lạt, Nha Trang...">
+                    </div>
+                </div>
+
+                <!-- Quản lý ảnh trong album -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-xs font-bold text-gray-700">
+                            Ảnh trong album (<span id="edit-memory-photo-count">0</span> ảnh):
+                        </label>
+                        <span class="text-[11px] text-gray-400">Bấm dấu ✕ trên góc ảnh để xóa bớt</span>
+                    </div>
+
+                    <!-- Danh sách thumbnails ảnh hiện tại -->
+                    <div id="edit-memory-thumbnails" class="grid grid-cols-3 sm:grid-cols-4 gap-2.5 p-2.5 bg-gray-50 rounded-2xl border border-gray-200 max-h-48 overflow-y-auto">
+                        <!-- Render danh sách ảnh bằng JS -->
+                    </div>
+
+                    <!-- Nút thêm ảnh mới vào album này -->
+                    <div class="mt-2.5">
+                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/jpeg,image/png,image/webp,image/gif,image/*" multiple>
+                        <label for="edit-memory-add-files" class="w-full py-2 px-3 rounded-xl border-2 border-dashed border-rose-200 hover:border-rose-400 hover:bg-rose-50/50 text-rose-600 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span id="edit-memory-add-text">+ Thêm ảnh mới vào album (giữ nguyên độ phân giải)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Nhóm nút hành động -->
+                <div class="flex items-center space-x-3 pt-3 border-t border-gray-100">
+                    <button type="button" id="btn-cancel-edit-memory" class="flex-1 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 text-gray-600 font-bold text-xs transition-colors cursor-pointer">
+                        Hủy
+                    </button>
+                    <button type="button" id="btn-save-edit-memory" class="flex-1 py-2.5 bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center space-x-1.5">
+                        <span>Lưu Thay Đổi</span>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

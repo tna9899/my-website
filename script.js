@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return sessionStorage.getItem('isLoggedIn') === 'true' || localStorage.getItem('isLoggedIn') === 'true';
         },
 
-        login(username, password) {
+        async login(username, password) {
             const creds = this.getCredentials();
             if (username === creds.username && password === creds.password) {
                 sessionStorage.setItem('isLoggedIn', 'true');
@@ -137,6 +137,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 Logger.log('LOGIN_SUCCESS', `Đăng nhập thành công với tài khoản: ${username}`);
                 return true;
             }
+
+            // Fallback: Kiểm tra và đồng bộ với Cloud Server
+            try {
+                const endpoints = MemoryStore.getEndpoints('/api/auth');
+                for (const ep of endpoints) {
+                    try {
+                        const controller = new AbortController();
+                        const toId = setTimeout(() => controller.abort(), 4000);
+                        const resp = await fetch(ep, { mode: 'cors', signal: controller.signal });
+                        clearTimeout(toId);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data && data.auth && data.auth.username === username && data.auth.password === password) {
+                                this.setCredentials(data.auth);
+                                sessionStorage.setItem('isLoggedIn', 'true');
+                                localStorage.setItem('isLoggedIn', 'true');
+                                Logger.log('LOGIN_SUCCESS', `Đăng nhập thành công qua Cloud Server: ${username}`);
+                                return true;
+                            }
+                        }
+                    } catch (e) {}
+                }
+            } catch (e) {}
+
             Logger.log('LOGIN_FAIL', `Đăng nhập thất bại với tài khoản: ${username}`);
             return false;
         },
@@ -159,8 +183,22 @@ document.addEventListener('DOMContentLoaded', () => {
             
             creds.password = newPass;
             this.setCredentials(creds);
+
+            // Đồng bộ mật khẩu mới lên Cloud Server ngay lập tức
+            try {
+                const endpoints = MemoryStore.getEndpoints('/api/auth');
+                for (const ep of endpoints) {
+                    fetch(ep, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(creds),
+                        mode: 'cors'
+                    }).catch(() => {});
+                }
+            } catch (e) {}
+
             Logger.log('CHANGE_PASSWORD_SUCCESS', 'Đã đổi mật khẩu thành công');
-            return { success: true, message: 'Đổi mật khẩu thành công!' };
+            return { success: true, message: 'Đổi mật khẩu thành công và đồng bộ lên Cloud!' };
         }
     };
 
@@ -897,11 +935,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    loginBtn.addEventListener('click', () => {
+    loginBtn.addEventListener('click', async () => {
         const u = usernameInput.value.trim();
         const p = passwordInput.value.trim();
+        const rememberEl = document.getElementById('remember-login');
+        const shouldRemember = rememberEl ? rememberEl.checked : true;
 
-        if (Auth.login(u, p)) {
+        loginBtn.disabled = true;
+        loginBtn.innerHTML = `
+            <svg class="animate-spin h-4 w-4 text-white inline mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span>Đang xác thực...</span>
+        `;
+
+        const success = await Auth.login(u, p);
+
+        loginBtn.disabled = false;
+        loginBtn.innerHTML = `<span>Đăng Nhập Quản Trị</span>`;
+
+        if (success) {
+            if (shouldRemember) {
+                try { localStorage.setItem('isLoggedIn', 'true'); } catch (e) {}
+            } else {
+                try { localStorage.removeItem('isLoggedIn'); } catch (e) {}
+            }
             if (loginError) loginError.classList.add('hidden');
             closeLoginModal();
             updateAuthUI();
@@ -1531,7 +1587,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         <!-- Nhóm nút Thao tác (Chỉ hiển thị khi đã Đăng Nhập Chủ Nhân) -->
                         ${isOwner ? `
-                            <div class="flex items-center space-x-2">
+                            <div class="flex items-center space-x-1.5 sm:space-x-2">
+                                <!-- Nút Sửa kỷ niệm -->
+                                <button class="text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-xl transition-colors flex items-center space-x-1 text-xs font-bold border border-rose-200/80 shadow-xs cursor-pointer select-none active:scale-95" data-edit-memory="${memoryId}" title="Chỉnh sửa nội dung, ngày, địa điểm và ảnh">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                    </svg>
+                                    <span>Sửa</span>
+                                </button>
+
                                 <input type="file" id="input-add-photo-${memoryId}" class="sr-only-file sr-only" accept="image/jpeg,image/png,image/webp,image/gif,image/*" multiple>
                                 <label for="input-add-photo-${memoryId}" class="text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-xl transition-colors flex items-center space-x-1 text-xs font-bold border border-rose-200/80 shadow-xs cursor-pointer select-none active:scale-95" data-add-photo="${memoryId}" title="Thêm ảnh vào album này">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1701,6 +1765,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     btnText.innerHTML = originalText;
                     addPhotoBtn.classList.remove('opacity-60', 'pointer-events-none');
                     inputAddPhoto.value = '';
+                });
+            }
+
+            // Bắt sự kiện Chỉnh sửa kỷ niệm (Lời nhắn, địa điểm, ngày tháng, ảnh)
+            const editBtn = card.querySelector(`[data-edit-memory="${memoryId}"]`);
+            if (editBtn) {
+                editBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    EditMemoryModal.open(memoryId);
                 });
             }
 
@@ -3331,6 +3404,212 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // =========================================================================
+    // 15. QUẢN LÝ MODAL CHỈNH SỬA KỶ NIỆM (CHO ĐIỆN THOẠI & MÁY TÍNH)
+    // Cho phép sửa lời nhắn, ngày kỷ niệm, địa điểm, thêm & xóa từng ảnh trong album
+    // =========================================================================
+    const EditMemoryModal = {
+        modal: null,
+        currentMemoryId: null,
+        workingImages: [],
+
+        init() {
+            this.modal = document.getElementById('modal-edit-memory');
+            if (!this.modal) return;
+
+            const btnClose = document.getElementById('close-modal-edit-memory');
+            const btnCancel = document.getElementById('btn-cancel-edit-memory');
+            const form = document.getElementById('form-edit-memory');
+            const addFilesInput = document.getElementById('edit-memory-add-files');
+            const btnSave = document.getElementById('btn-save-edit-memory');
+
+            if (btnClose) btnClose.addEventListener('click', () => this.close());
+            if (btnCancel) btnCancel.addEventListener('click', () => this.close());
+            this.modal.addEventListener('click', (e) => {
+                if (e.target === this.modal) this.close();
+            });
+
+            // Chọn thêm ảnh mới vào album
+            if (addFilesInput) {
+                addFilesInput.addEventListener('change', async (e) => {
+                    const files = Array.from(e.target.files);
+                    if (!files.length) return;
+
+                    const addText = document.getElementById('edit-memory-add-text');
+                    if (addText) addText.textContent = `Đang xử lý ${files.length} ảnh...`;
+
+                    for (const file of files) {
+                        try {
+                            const b64 = await processImagePreservingResolution(file);
+                            if (b64) {
+                                this.workingImages.push(b64);
+                            }
+                        } catch (err) {
+                            Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                        }
+                    }
+
+                    if (addText) addText.textContent = '+ Thêm ảnh mới vào album (giữ nguyên độ phân giải)';
+                    addFilesInput.value = '';
+                    this.renderThumbnails();
+                });
+            }
+
+            // Lưu cập nhật kỷ niệm
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.save();
+                });
+            }
+            if (btnSave) {
+                btnSave.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.save();
+                });
+            }
+        },
+
+        open(memoryId) {
+            if (!Auth.isLoggedIn()) {
+                openLoginModal('Vui lòng đăng nhập tài khoản Chủ Nhân để chỉnh sửa kỷ niệm!');
+                return;
+            }
+
+            const memories = MemoryStore.getAll();
+            const item = memories.find(m => String(m.id) === String(memoryId));
+            if (!item) return;
+
+            this.currentMemoryId = String(memoryId);
+            const rawImgs = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
+            this.workingImages = [...rawImgs];
+
+            const inputId = document.getElementById('edit-memory-id');
+            const inputContent = document.getElementById('edit-memory-content');
+            const inputDate = document.getElementById('edit-memory-date');
+            const inputLocation = document.getElementById('edit-memory-location');
+
+            if (inputId) inputId.value = this.currentMemoryId;
+            if (inputContent) inputContent.value = item.content || '';
+            if (inputDate) inputDate.value = item.date || '';
+            if (inputLocation) inputLocation.value = item.location || '';
+
+            this.renderThumbnails();
+
+            if (this.modal) {
+                this.modal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+            }
+        },
+
+        close() {
+            if (this.modal) {
+                this.modal.classList.add('hidden');
+                document.body.style.overflow = '';
+            }
+            this.currentMemoryId = null;
+            this.workingImages = [];
+        },
+
+        renderThumbnails() {
+            const container = document.getElementById('edit-memory-thumbnails');
+            const countEl = document.getElementById('edit-memory-photo-count');
+            if (countEl) countEl.textContent = this.workingImages.length;
+            if (!container) return;
+
+            if (!this.workingImages.length) {
+                container.innerHTML = `
+                    <div class="col-span-full py-4 text-center text-xs text-gray-400 italic">
+                        Album chưa có ảnh nào. Vui lòng bấm bên dưới để thêm ảnh!
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = this.workingImages.map((src, idx) => `
+                <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-xs">
+                    <img src="${src}" class="w-full h-full object-cover">
+                    <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer" data-remove-img-idx="${idx}" title="Xóa ảnh này khỏi album">
+                        ✕
+                    </button>
+                    <span class="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.2 rounded font-mono">
+                        #${idx + 1}
+                    </span>
+                </div>
+            `).join('');
+
+            // Gắn sự kiện xóa ảnh
+            container.querySelectorAll('[data-remove-img-idx]').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const removeIdx = parseInt(btn.getAttribute('data-remove-img-idx'), 10);
+                    this.workingImages.splice(removeIdx, 1);
+                    this.renderThumbnails();
+                });
+            });
+        },
+
+        async save() {
+            if (!this.currentMemoryId) return;
+
+            const inputContent = document.getElementById('edit-memory-content');
+            const inputDate = document.getElementById('edit-memory-date');
+            const inputLocation = document.getElementById('edit-memory-location');
+            const btnSave = document.getElementById('btn-save-edit-memory');
+
+            const content = inputContent ? inputContent.value.trim() : '';
+            const date = inputDate ? inputDate.value : '';
+            const location = inputLocation ? inputLocation.value.trim() : '';
+
+            if (this.workingImages.length === 0) {
+                alert('Vui lòng giữ lại hoặc thêm ít nhất 1 ảnh cho album kỷ niệm này!');
+                return;
+            }
+
+            if (btnSave) {
+                btnSave.disabled = true;
+                btnSave.innerHTML = `
+                    <svg class="animate-spin h-4 w-4 text-white inline mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span>Đang đồng bộ...</span>
+                `;
+            }
+
+            try {
+                // Tải bất kỳ ảnh base64 mới nào lên server thành file uploads/
+                const finalImages = await uploadImagesToServer(this.workingImages);
+
+                const memories = MemoryStore.getAll();
+                const target = memories.find(m => String(m.id) === String(this.currentMemoryId));
+                if (target) {
+                    target.content = content;
+                    target.date = date;
+                    target.location = location;
+                    target.images = finalImages;
+
+                    const synced = await MemoryStore.saveAll(memories);
+                    Logger.log('EDIT_MEMORY_SUCCESS', `Đã cập nhật kỷ niệm ID: ${this.currentMemoryId}`);
+
+                    this.close();
+                    renderMemories();
+                    renderVietnamMap();
+
+                    if (synced) {
+                        alert('🎉 Đã cập nhật kỷ niệm thành công và đồng bộ ngay lập tức tới tất cả thiết bị!');
+                    } else {
+                        alert('Đã lưu thay đổi kỷ niệm trên thiết bị này (sẽ tự động đồng bộ khi có kết nối Cloud).');
+                    }
+                }
+            } catch (err) {
+                alert('Lỗi cập nhật: ' + err.message);
+            } finally {
+                if (btnSave) {
+                    btnSave.disabled = false;
+                    btnSave.innerHTML = `<span>Lưu Thay Đổi</span>`;
+                }
+            }
+        }
+    };
+
+    // =========================================================================
     // 16. TRÌNH XEM ẢNH TOÀN MÀN HÌNH & THU NHỎ / PHÓNG TO (IMAGE LIGHTBOX VIEWER)
     // Giữ nguyên 100% độ phân giải gốc của ảnh, hỗ trợ đầy đủ cử chỉ di động & máy tính
     // =========================================================================
@@ -3803,6 +4082,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderVietnamMap();
     MemoryStore.initSync();
     ImageViewer.init();
+    EditMemoryModal.init();
     Logger.log('APP_READY', 'Hệ thống đã khởi tạo hoàn tất');
 });
 

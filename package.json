@@ -1,0 +1,20 @@
+{
+  "name": "ngocanh-tuuyen-website",
+  "version": "2.0.0",
+  "description": "Website Kỷ Niệm Tình Yêu: Ngọc Ánh & Tú Uyên",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "love-story",
+    "wedding",
+    "anniversary",
+    "vietnam-map"
+  ],
+  "author": "Ngọc Ánh & Tú Uyên",
+  "license": "MIT"
+}

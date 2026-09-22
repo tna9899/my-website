@@ -252,6 +252,41 @@ while ($listener.IsListening) {
             continue
         }
 
+        # 3.5 API DONG BO TAI KHOAN CHU NHAN (/api/auth)
+        if ($request.Url.AbsolutePath -eq "/api/auth") {
+            $authFile = Join-Path $folder "auth.json"
+            if ($request.HttpMethod -eq "GET") {
+                $authContent = '{"username":"anhuyen","password":"anhuyen","role":"Chủ nhân","owner":"Ngọc Ánh & Tú Uyên"}'
+                if (Test-Path $authFile) {
+                    try { $authContent = [System.IO.File]::ReadAllText($authFile, [System.Text.Encoding]::UTF8) } catch {}
+                }
+                $authBuf = [System.Text.Encoding]::UTF8.GetBytes('{"status":"ok","auth":' + $authContent + '}')
+                $response.StatusCode = 200
+                $response.ContentType = "application/json; charset=utf-8"
+                $response.ContentLength64 = $authBuf.Length
+                $response.OutputStream.Write($authBuf, 0, $authBuf.Length)
+                $response.Close()
+                continue
+            }
+            if ($request.HttpMethod -eq "POST") {
+                $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+                $authBody = $reader.ReadToEnd()
+                $reader.Close()
+                if ($authBody) {
+                    try {
+                        [System.IO.File]::WriteAllText($authFile, $authBody, [System.Text.Encoding]::UTF8)
+                    } catch {}
+                }
+                $response.StatusCode = 200
+                $authBuf = [System.Text.Encoding]::UTF8.GetBytes('{"status":"ok"}')
+                $response.ContentType = "application/json; charset=utf-8"
+                $response.ContentLength64 = $authBuf.Length
+                $response.OutputStream.Write($authBuf, 0, $authBuf.Length)
+                $response.Close()
+                continue
+            }
+        }
+
         # 4. API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
         if ($request.Url.AbsolutePath -eq "/api/memories") {
             if ($request.HttpMethod -eq "GET") {
