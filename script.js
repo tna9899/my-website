@@ -3,6 +3,16 @@
  * Toàn bộ logic giao diện, slider, đăng nhập, đổi mật khẩu, đổi màu nền và ghi log
  */
 
+// Ảnh placeholder SVG mã hóa Base64 chuẩn RFC 2397 tương thích 100% tất cả trình duyệt bao gồm Safari/iOS
+window.FALLBACK_IMG_PLACEHOLDER = "data:image/svg+xml;base64," + btoa(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">' +
+    '<rect width="600" height="400" fill="#fff1f2"/>' +
+    '<circle cx="300" cy="180" r="44" fill="#ffe4e6"/>' +
+    '<path d="M282 170a18 18 0 1036 0 18 18 0 00-36 0zm-24 42h84l-26-32-22 26-16-16z" fill="#fb7185"/>' +
+    '<text x="300" y="260" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#e11d48" font-weight="bold">Anh ky niem</text>' +
+    '</svg>'
+);
+
 document.addEventListener('DOMContentLoaded', () => {
 
     // =========================================================================
@@ -356,12 +366,19 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         getAll() {
-            if (this._cache !== null) return this._cache;
-            try {
-                this._cache = JSON.parse(localStorage.getItem(this.storageKey) || '[]');
-            } catch (e) {
-                this._cache = [];
+            let list = this._cache;
+            if (list === null) {
+                try {
+                    list = JSON.parse(localStorage.getItem(this.storageKey) || '[]');
+                } catch (e) {
+                    list = [];
+                }
             }
+            if (Array.isArray(list)) {
+                this._cache = list.filter(m => m && m.id && String(m.id) !== '1790043870491');
+                return this._cache;
+            }
+            this._cache = [];
             return this._cache;
         },
 
@@ -529,26 +546,43 @@ document.addEventListener('DOMContentLoaded', () => {
             const localMemories = this.getAll();
             const map = new Map();
 
+            // Hàm lọc và làm sạch danh sách ảnh hợp lệ của 1 kỷ niệm
+            const sanitizeImages = (rawImgs) => {
+                const arr = Array.isArray(rawImgs) ? rawImgs : (rawImgs ? [rawImgs] : []);
+                return arr.filter(img => 
+                    img && typeof img === 'string' && img.trim().length > 5 && 
+                    !img.includes('img_up_0_1790043870482') && 
+                    !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
+                );
+            };
+
             // 1. Nạp danh sách server trước (Server là nguồn chân lý cho dữ liệu đã đồng bộ)
             for (const item of serverMemories) {
                 if (!item || !item.id) continue;
                 const idStr = String(item.id);
                 if (deletedIds.includes(idStr)) continue;
-                map.set(idStr, { ...item });
+
+                const cleanImgs = sanitizeImages(item.images || item.image);
+                if (cleanImgs.length > 0) {
+                    map.set(idStr, { ...item, images: cleanImgs });
+                }
             }
 
-            // 2. Chỉ bổ sung các kỷ niệm mới ở máy local CHƯA TỪNG có trên server
+            // 2. Chỉ bổ sung các kỷ niệm mới ở máy local CHƯA TỪNG có trên server (nếu mới tạo gần đây trong 5 phút)
             for (const localItem of localMemories) {
                 if (!localItem || !localItem.id) continue;
                 const idStr = String(localItem.id);
                 if (deletedIds.includes(idStr)) continue;
 
                 if (!map.has(idStr)) {
-                    // Kỷ niệm mới tạo offline chưa sync lên server
-                    map.set(idStr, localItem);
+                    const isRecent = localItem.createdAt && (Date.now() - new Date(localItem.createdAt).getTime() < 300000);
+                    if (localItem._isOfflinePending || isRecent) {
+                        const cleanImgs = sanitizeImages(localItem.images || localItem.image);
+                        if (cleanImgs.length > 0) {
+                            map.set(idStr, { ...localItem, images: cleanImgs });
+                        }
+                    }
                 }
-                // Nếu server ĐÃ CÓ kỷ niệm này, TUYỆT ĐỐI giữ nguyên danh sách ảnh của server!
-                // Không gộp ngược ảnh cũ của máy local vào để tránh làm sống lại các ảnh người dùng đã xóa!
             }
 
             const result = Array.from(map.values());
@@ -604,8 +638,9 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const idbList = await IDBStorage.getAll();
                 if (idbList && idbList.length > 0) {
-                    this._cache = idbList;
-                    try { localStorage.setItem(this.storageKey, JSON.stringify(idbList)); } catch (e) {}
+                    const cleanList = idbList.filter(m => m && m.id && String(m.id) !== '1790043870491');
+                    this._cache = cleanList;
+                    try { localStorage.setItem(this.storageKey, JSON.stringify(cleanList)); } catch (e) {}
                 }
             } catch (e) {}
 
@@ -1548,12 +1583,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         memories.forEach((item) => {
             const memoryId = item.id;
-            const images = item.images && item.images.length ? item.images : (item.image ? [item.image] : []);
+            const rawImgs = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
+            const images = rawImgs.filter(img => 
+                img && typeof img === 'string' && img.trim().length > 5 && 
+                !img.includes('img_up_0_1790043870482') && 
+                !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
+            );
             const totalImages = images.length;
+            if (totalImages === 0) return; // Bỏ qua nếu không có ảnh hợp lệ
 
-            if (carouselState[memoryId] === undefined) {
-                carouselState[memoryId] = 0;
-            }
+            carouselState[memoryId] = Math.max(0, Math.min(carouselState[memoryId] || 0, totalImages - 1));
 
             const card = document.createElement('article');
             card.className = 'bg-white/95 backdrop-blur-sm rounded-3xl overflow-hidden shadow-md border border-rose-100 transition-all hover:shadow-xl fade-in';
@@ -1578,7 +1617,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${images.map((imgSrc, imgIdx) => `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
-                                        <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\' viewBox=\'0 0 400 300\'%3E%3Crect width=\'400\' height=\'300\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'14\' fill=\'%23f43f5e\'%3E📷 Ảnh kỷ niệm%3C/text%3E%3C/svg%3E';">
+                                        <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="eager" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
                                     </div>
                                 </div>
                             `).join('')}
@@ -1608,7 +1647,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hiển thị 1 ảnh FULL tỷ lệ
                 mediaMarkup = `
                     <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                        <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\' viewBox=\'0 0 400 300\'%3E%3Crect width=\'400\' height=\'300\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'14\' fill=\'%23f43f5e\'%3E📷 Ảnh kỷ niệm%3C/text%3E%3C/svg%3E';">
+                        <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
                     </div>
                 `;
             }
@@ -3576,7 +3615,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             container.innerHTML = this.workingImages.map((src, idx) => `
                 <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-xs">
-                    <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 100 100\'%3E%3Crect width=\'100\' height=\'100\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-size=\'20\'%3E📷%3C/text%3E%3C/svg%3E';">
+                    <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
                     <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer" data-remove-img-idx="${idx}" title="Xóa ảnh này khỏi album">
                         ✕
                     </button>
@@ -3633,6 +3672,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     target.date = date;
                     target.location = location;
                     target.images = finalImages;
+
+                    // Reset vi tri album de khong bi lech index sau khi xoa anh
+                    carouselState[this.currentMemoryId] = 0;
+                    if (typeof ImageViewer !== 'undefined' && ImageViewer.isOpen) {
+                        ImageViewer.close();
+                    }
 
                     const synced = await MemoryStore.saveAll(memories);
                     Logger.log('EDIT_MEMORY_SUCCESS', `Đã cập nhật kỷ niệm ID: ${this.currentMemoryId}`);
@@ -3714,6 +3759,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.stage = document.getElementById('viewer-stage');
             this.img = document.getElementById('viewer-image');
+            if (this.img) {
+                this.img.onerror = () => {
+                    this.img.src = window.FALLBACK_IMG_PLACEHOLDER;
+                    this.img.style.opacity = '1';
+                };
+            }
             this.loader = document.getElementById('viewer-loader');
             this.counter = document.getElementById('viewer-counter');
             this.zoomLevel = document.getElementById('viewer-zoom-level');
@@ -3791,12 +3842,25 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         open(images, startIndex = 0, caption = '', subtitle = '') {
-            if (!images || !images.length) return;
-            this.images = Array.isArray(images) ? images : [images];
+            const raw = Array.isArray(images) ? images : [images];
+            const valid = raw.filter(img => 
+                img && typeof img === 'string' && img.trim().length > 5 &&
+                !img.includes('img_up_0_1790043870482') &&
+                !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
+            );
+            if (!valid.length) return;
+
+            this.images = valid;
             this.currentIndex = Math.max(0, Math.min(startIndex, this.images.length - 1));
             this.caption = caption || '';
             this.subtitle = subtitle || '';
             this.isOpen = true;
+
+            // Reset ảnh hiển thị về trạng thái ẩn để Safari không bao giờ hiện dấu hỏi chấm [?]
+            if (this.img) {
+                this.img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                this.img.style.opacity = '0';
+            }
 
             // Reset trạng thái hiển thị
             this.scale = 1;
@@ -3826,7 +3890,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     if (!this.isOpen && this.modal) {
                         this.modal.classList.add('hidden');
-                        if (this.img) this.img.src = '';
+                        if (this.img) {
+                            this.img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                            this.img.style.opacity = '0';
+                        }
                     }
                 }, 260);
             }
@@ -3870,20 +3937,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.btnDownload.download = `NgocAnh-TuUyen-KyNiem-${this.currentIndex + 1}.jpg`;
             }
 
-            // Hiển thị vòng xoay đang tải
+            // Ẩn ảnh tạm thời và bật loader để tránh giật lag hoặc hiện icon lỗi trên Safari
             if (this.loader) this.loader.classList.remove('hidden');
+            if (this.img) {
+                this.img.style.opacity = '0';
+            }
 
+            const reqIdx = this.currentIndex;
             const tempImg = new Image();
             tempImg.onload = () => {
-                if (this.img && this.isOpen) {
+                if (this.img && this.isOpen && this.currentIndex === reqIdx) {
                     this.img.src = currentSrc;
+                    this.img.style.opacity = '1';
                     if (this.loader) this.loader.classList.add('hidden');
                     this.applyTransform(false);
                 }
             };
             tempImg.onerror = () => {
-                if (this.img && this.isOpen) {
-                    this.img.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'600\' height=\'400\' viewBox=\'0 0 600 400\'%3E%3Crect width=\'600\' height=\'400\' fill=\'%231f2937\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'16\' fill=\'%23f43f5e\'%3E📷 Không thể tải ảnh (ảnh có thể đã được xóa)%3C/text%3E%3C/svg%3E';
+                if (this.img && this.isOpen && this.currentIndex === reqIdx) {
+                    this.img.src = window.FALLBACK_IMG_PLACEHOLDER;
+                    this.img.style.opacity = '1';
                     if (this.loader) this.loader.classList.add('hidden');
                 }
             };

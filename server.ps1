@@ -13,6 +13,7 @@ if (-not $folder) { $folder = "D:\TNA\Project\anhuyen" }
 $logFile = Join-Path $folder "user_activity.log"
 $memoriesFile = Join-Path $folder "memories.json"
 $backupFile = Join-Path $folder "memories.backup.json"
+$deletedIdsFile = Join-Path $folder "deleted_ids.json"
 $portFile = Join-Path $folder "server_port.txt"
 $linkFile = Join-Path $folder "link_online.txt"
 $uploadsFolder = Join-Path $folder "uploads"
@@ -294,10 +295,32 @@ while ($listener.IsListening) {
         # 4. API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
         if ($request.Url.AbsolutePath -eq "/api/memories") {
             if ($request.HttpMethod -eq "GET") {
-                $content = "[]"
+                $memoriesList = @()
                 if (Test-Path $memoriesFile) {
-                    $content = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+                    try {
+                        $raw = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+                        $parsed = ConvertFrom-Json $raw -ErrorAction SilentlyContinue
+                        if ($parsed -is [System.Array]) { $memoriesList = $parsed }
+                        elseif ($parsed) { $memoriesList = @($parsed) }
+                    } catch {}
                 }
+                $delList = @()
+                if (Test-Path $deletedIdsFile) {
+                    try {
+                        $delRaw = [System.IO.File]::ReadAllText($deletedIdsFile, [System.Text.Encoding]::UTF8)
+                        $delParsed = ConvertFrom-Json $delRaw -ErrorAction SilentlyContinue
+                        if ($delParsed -is [System.Array]) { $delList = @($delParsed | ForEach-Object { [string]$_ }) }
+                    } catch {}
+                }
+
+                $resObj = [PSCustomObject]@{
+                    status = "ok"
+                    version = [string]$global:serverVersion
+                    count = $memoriesList.Count
+                    memories = $memoriesList
+                    deletedIds = $delList
+                }
+                $content = ConvertTo-Json -InputObject $resObj -Depth 10 -Compress
                 $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
 
                 # Chong cache tuyet doi de dien thoai luon nhan ky niem moi nhat
@@ -364,12 +387,28 @@ while ($listener.IsListening) {
                         Copy-Item -Path $memoriesFile -Destination $backupFile -Force -ErrorAction SilentlyContinue
                     }
 
+                    # Doc danh sach ID da xoa tren disk va merge
+                    $storedDeleted = @()
+                    if (Test-Path $deletedIdsFile) {
+                        try {
+                            $delRaw = [System.IO.File]::ReadAllText($deletedIdsFile, [System.Text.Encoding]::UTF8)
+                            $delParsed = ConvertFrom-Json $delRaw -ErrorAction SilentlyContinue
+                            if ($delParsed -is [System.Array]) { $storedDeleted = @($delParsed | ForEach-Object { [string]$_ }) }
+                            elseif ($delParsed) { $storedDeleted = @([string]$delParsed) }
+                        } catch {}
+                    }
+                    $allDeleted = @(($storedDeleted + $deletedIds) | Select-Object -Unique)
+                    if ($allDeleted.Count -gt 0) {
+                        $delJson = ConvertTo-Json -InputObject $allDeleted -Compress
+                        [System.IO.File]::WriteAllText($deletedIdsFile, $delJson, [System.Text.Encoding]::UTF8)
+                    }
+
                     # Bang tra cuu memories theo ID dung Hashtable tuyet doi khong loi
                     $memoryMap = [System.Collections.Specialized.OrderedDictionary]::new()
                     foreach ($m in $currentMemories) {
                         if ($m -and $m.id) {
                             $idStr = [string]$m.id
-                            if ($deletedIds -notcontains $idStr) {
+                            if ($allDeleted -notcontains $idStr) {
                                 $memoryMap[$idStr] = $m
                             }
                         }
@@ -379,7 +418,7 @@ while ($listener.IsListening) {
                     foreach ($inItem in $incomingMemories) {
                         if (-not $inItem -or -not $inItem.id) { continue }
                         $idStr = [string]$inItem.id
-                        if ($deletedIds -contains $idStr) { continue }
+                        if ($allDeleted -contains $idStr) { continue }
 
                         # Chuyen tat ca anh base64 cua inItem thanh file uploads/
                         $cleanInImgs = [System.Collections.Generic.List[string]]::new()
@@ -439,11 +478,12 @@ while ($listener.IsListening) {
 
                     Write-Host "[MEMORIES] Dong bo thanh cong: $($sortedList.Count) ky niem (Phien ban: $global:serverVersion)" -ForegroundColor Green
 
-                    $resObj = @{
+                    $resObj = [PSCustomObject]@{
                         status = "ok"
                         version = [string]$global:serverVersion
                         count = $sortedList.Count
                         memories = $sortedList
+                        deletedIds = $allDeleted
                     }
                     $resJson = ConvertTo-Json $resObj -Depth 10 -Compress
                     $buffer = [System.Text.Encoding]::UTF8.GetBytes($resJson)
