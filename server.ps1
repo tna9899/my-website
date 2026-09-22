@@ -122,26 +122,30 @@ Start-Process "http://localhost:$port"
 
 # Ham ho tro boc tach va luu anh base64 thanh file vat ly trong thu muc uploads/ (giu nguyen 100% chat luong & do phan giai goc)
 function Save-Base64ToUploads($b64String, $prefixId, $idx) {
-    if (-not $b64String -or -not ($b64String -is [string]) -or -not $b64String.StartsWith("data:image/")) {
+    if (-not $b64String -or -not ($b64String -is [string])) { return "" }
+    if (-not $b64String.StartsWith("data:image/")) {
         return $b64String # Neu da la duong dan file (uploads/...) thi giu nguyen
     }
 
     try {
         $commaIdx = $b64String.IndexOf(',')
-        if ($commaIdx -lt 0) { return $b64String }
+        if ($commaIdx -lt 0) { return "" }
 
+        $data = $b64String.Substring($commaIdx + 1)
+        if (-not $data -or $data.Length -lt 20) { return "" }
+
+        $bytes = [System.Convert]::FromBase64String($data)
+        if (-not $bytes -or $bytes.Length -lt 20) { return "" }
+        
         $header = $b64String.Substring(0, $commaIdx)
         $ext = "jpg"
         if ($header -match 'image\/([a-zA-Z0-9\+\-]+)') {
             $matchedExt = $matches[1].ToLower()
             if ($matchedExt -eq 'jpeg') { $ext = 'jpg' }
             elseif ($matchedExt -eq 'svg+xml') { $ext = 'svg' }
-            elseif ($matchedExt -match '^(jpg|png|webp|gif|svg|avif)$') { $ext = $matchedExt }
+            elseif ($matchedExt -match '^(jpg|png|webp|gif|svg|avif|heic|heif|bmp|tiff?)$') { $ext = $matchedExt }
         }
 
-        $data = $b64String.Substring($commaIdx + 1)
-        $bytes = [System.Convert]::FromBase64String($data)
-        
         $safeId = [string]$prefixId -replace '[^a-zA-Z0-9_-]', ''
         if (-not $safeId) { $safeId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
         $fileName = "img_${safeId}_${idx}_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()).$ext"
@@ -150,7 +154,7 @@ function Save-Base64ToUploads($b64String, $prefixId, $idx) {
         [System.IO.File]::WriteAllBytes($filePath, $bytes)
         return "uploads/$fileName"
     } catch {
-        return $b64String
+        return ""
     }
 }
 
@@ -398,30 +402,12 @@ while ($listener.IsListening) {
                         if ($memoryMap.Contains($idStr)) {
                             $existing = $memoryMap[$idStr]
 
-                            # Hop nhat anh (khong trung lap)
-                            $mergedImgs = [System.Collections.Generic.List[string]]::new()
-                            $seenImgs = [System.Collections.Generic.HashSet[string]]::new()
-
-                            # Lay anh cu
-                            $exImgs = @()
-                            if ($existing.PSObject.Properties['images'] -and $existing.images) {
-                                $exImgs = $existing.images
-                            } elseif ($existing.PSObject.Properties['image'] -and $existing.image) {
-                                $exImgs = @($existing.image)
-                            }
-                            foreach ($img in $exImgs) {
-                                if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
-                            }
-
-                            # Bo sung anh moi
-                            foreach ($img in $cleanInImgs) {
-                                if ($img -and $seenImgs.Add($img)) { $mergedImgs.Add($img) }
-                            }
-
-                            # Tao object hop nhat moi an toan tuyet doi
+                            # CHU Y: $cleanInImgs la danh sach anh moi nhat do nguoi dung quyet dinh!
+                            # Neu nguoi dung da xoa anh khoi album thi $cleanInImgs phai THAY THE danh sach cu!
+                            # KHONG dung union gop anh de tranh lam hoi sinh cac anh da bi xoa!
                             $updatedObj = [PSCustomObject]@{
                                 id = $idStr
-                                images = @($mergedImgs)
+                                images = if ($cleanInImgs.Count -gt 0) { @($cleanInImgs) } else { @($existing.images) }
                                 content = if ($inItem.content) { $inItem.content } else { $existing.content }
                                 location = if ($inItem.location) { $inItem.location } else { $existing.location }
                                 date = if ($inItem.date) { $inItem.date } else { $existing.date }
@@ -536,6 +522,30 @@ while ($listener.IsListening) {
                 }
                 ".gif"  { 
                     $response.ContentType = "image/gif"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".heic" { 
+                    $response.ContentType = "image/heic"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".heif" { 
+                    $response.ContentType = "image/heif"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".avif" { 
+                    $response.ContentType = "image/avif"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".bmp"  { 
+                    $response.ContentType = "image/bmp"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".tiff" { 
+                    $response.ContentType = "image/tiff"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".tif" { 
+                    $response.ContentType = "image/tiff"
                     $response.Headers.Add("Cache-Control", "public, max-age=86400")
                 }
                 default { $response.ContentType = "application/octet-stream" }

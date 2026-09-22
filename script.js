@@ -486,6 +486,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         const serverMemories = Array.isArray(data) ? data : (data.memories || []);
                         const newVer = (data && data.version) || serverVer;
 
+                        if (data && Array.isArray(data.deletedIds)) {
+                            for (const dId of data.deletedIds) {
+                                this.addDeletedId(String(dId));
+                            }
+                        }
+
                         if (newVer) {
                             this._version = String(newVer);
                             try { localStorage.setItem(this.versionKey, this._version); } catch (e) {}
@@ -523,35 +529,26 @@ document.addEventListener('DOMContentLoaded', () => {
             const localMemories = this.getAll();
             const map = new Map();
 
-            // 1. Nạp danh sách server trước
+            // 1. Nạp danh sách server trước (Server là nguồn chân lý cho dữ liệu đã đồng bộ)
             for (const item of serverMemories) {
                 if (!item || !item.id) continue;
-                if (deletedIds.includes(String(item.id))) continue;
-                map.set(String(item.id), { ...item });
+                const idStr = String(item.id);
+                if (deletedIds.includes(idStr)) continue;
+                map.set(idStr, { ...item });
             }
 
-            // 2. Bổ sung các kỷ niệm mới ở máy local chưa kịp sync lên
+            // 2. Chỉ bổ sung các kỷ niệm mới ở máy local CHƯA TỪNG có trên server
             for (const localItem of localMemories) {
                 if (!localItem || !localItem.id) continue;
                 const idStr = String(localItem.id);
                 if (deletedIds.includes(idStr)) continue;
 
-                if (map.has(idStr)) {
-                    const serverItem = map.get(idStr);
-                    const serverImgs = serverItem.images || (serverItem.image ? [serverItem.image] : []);
-                    const localImgs = localItem.images || (localItem.image ? [localItem.image] : []);
-                    
-                    const combined = [...serverImgs];
-                    for (const lImg of localImgs) {
-                        if (!combined.includes(lImg)) {
-                            combined.push(lImg);
-                        }
-                    }
-                    serverItem.images = combined;
-                    map.set(idStr, serverItem);
-                } else {
+                if (!map.has(idStr)) {
+                    // Kỷ niệm mới tạo offline chưa sync lên server
                     map.set(idStr, localItem);
                 }
+                // Nếu server ĐÃ CÓ kỷ niệm này, TUYỆT ĐỐI giữ nguyên danh sách ảnh của server!
+                // Không gộp ngược ảnh cũ của máy local vào để tránh làm sống lại các ảnh người dùng đã xóa!
             }
 
             const result = Array.from(map.values());
@@ -698,42 +695,85 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // =========================================================================
-    // 4. XỬ LÝ ẢNH GIỮ NGUYÊN 100% ĐỘ PHÂN GIẢI & TẢI LÊN MÁY CHỦ
+    // 4. XỬ LÝ ẢNH GIỮ NGUYÊN 100% ĐỘ PHÂN GIẢI & HỖ TRỢ TẤT CẢ ĐỊNH DẠNG APPLE (HEIC/HEIF)
     // =========================================================================
+    const tryCanvasFallback = (blob) => {
+        return new Promise((resolve) => {
+            try {
+                const objectUrl = URL.createObjectURL(blob);
+                const img = new Image();
+                img.onload = () => {
+                    try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
+                    const width = img.naturalWidth || img.width;
+                    const height = img.naturalHeight || img.height;
+                    if (width > 0 && height > 0) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        const b64 = canvas.toDataURL('image/jpeg', 0.98);
+                        if (b64 && b64.length > 100) {
+                            resolve(b64);
+                            return;
+                        }
+                    }
+                    resolve(null);
+                };
+                img.onerror = () => {
+                    try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
+                    resolve(null);
+                };
+                img.src = objectUrl;
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    };
+
     // Giữ nguyên 100% từng pixel và chất lượng ảnh gốc từ điện thoại & máy tính
     const processImagePreservingResolution = async (file) => {
         if (!file) return null;
 
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                // Đọc trực tiếp định dạng nhị phân gốc, không resize hay nén giảm pixel
-                resolve(e.target.result);
-            };
-            reader.onerror = (err) => {
-                // Fallback nếu trình duyệt gặp sự cố đọc trực tiếp: đọc qua Image nhưng giữ nguyên 100% dimensions
+        let workingBlob = file;
+
+        // 1. Nhận diện và tự động chuyển đổi định dạng ảnh Apple (HEIC / HEIF)
+        const isAppleHeic = /\.(heic|heif)$/i.test(file.name || '') || 
+                            (file.type && /heic|heif/i.test(file.type));
+
+        if (isAppleHeic) {
+            Logger.log('APPLE_HEIC_DETECTED', `Phát hiện ảnh chụp từ iPhone/Apple: ${file.name || 'HEIC'}, đang tự động giải mã sang chuẩn hình ảnh sắc nét...`);
+            if (typeof heic2any === 'function') {
                 try {
-                    const objectUrl = URL.createObjectURL(file);
-                    const img = new Image();
-                    img.onload = () => {
-                        try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.naturalWidth || img.width;
-                        canvas.height = img.naturalHeight || img.height;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0);
-                        resolve(canvas.toDataURL('image/jpeg', 0.98));
-                    };
-                    img.onerror = () => {
-                        try { URL.revokeObjectURL(objectUrl); } catch (ex) {}
-                        reject(err);
-                    };
-                    img.src = objectUrl;
-                } catch (fallbackErr) {
-                    reject(err);
+                    const converted = await heic2any({
+                        blob: file,
+                        toType: 'image/jpeg',
+                        quality: 0.98
+                    });
+                    workingBlob = Array.isArray(converted) ? converted[0] : converted;
+                } catch (convErr) {
+                    console.warn('[HEIC] Chuyển đổi qua heic2any gặp sự cố, thử đọc luồng canvas:', convErr);
+                }
+            }
+        }
+
+        // 2. Đọc ảnh thành Base64 Data URL chất lượng nguyên bản
+        return new Promise(async (resolve) => {
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const res = e.target.result;
+                if (res && typeof res === 'string' && res.startsWith('data:image/') && res.length > 100) {
+                    resolve(res);
+                } else {
+                    const fallbackRes = await tryCanvasFallback(workingBlob);
+                    resolve(fallbackRes);
                 }
             };
-            reader.readAsDataURL(file);
+            reader.onerror = async () => {
+                const fallbackRes = await tryCanvasFallback(workingBlob);
+                resolve(fallbackRes);
+            };
+            reader.readAsDataURL(workingBlob);
         });
     };
 
@@ -747,7 +787,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const endpoints = MemoryStore.getEndpoints('/api/upload');
         for (let i = 0; i < imagesArray.length; i++) {
             const img = imagesArray[i];
-            if (img && img.startsWith('data:image/')) {
+            if (!img || typeof img !== 'string') continue;
+
+            if (img.startsWith('data:image/')) {
+                // Tuyệt đối không upload dữ liệu rỗng (< 100 ký tự) để tránh sinh file 0 byte gây lỗi dấu hỏi chấm
+                if (img.length < 100) continue;
+
                 let uploadedUrl = null;
                 for (const ep of endpoints) {
                     try {
@@ -771,9 +816,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     } catch (e) {}
                 }
-                results.push(uploadedUrl || img);
-            } else {
-                results.push(img);
+                if (uploadedUrl) {
+                    results.push(uploadedUrl);
+                } else if (img.length > 200) {
+                    results.push(img);
+                }
+            } else if (img.trim().length > 5) {
+                results.push(img.trim());
             }
         }
         return results;
@@ -1529,7 +1578,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${images.map((imgSrc, imgIdx) => `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
-                                        <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="lazy">
+                                        <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\' viewBox=\'0 0 400 300\'%3E%3Crect width=\'400\' height=\'300\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'14\' fill=\'%23f43f5e\'%3E📷 Ảnh kỷ niệm%3C/text%3E%3C/svg%3E';">
                                     </div>
                                 </div>
                             `).join('')}
@@ -1559,7 +1608,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hiển thị 1 ảnh FULL tỷ lệ
                 mediaMarkup = `
                     <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                        <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="lazy">
+                        <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="lazy" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'300\' viewBox=\'0 0 400 300\'%3E%3Crect width=\'400\' height=\'300\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'14\' fill=\'%23f43f5e\'%3E📷 Ảnh kỷ niệm%3C/text%3E%3C/svg%3E';">
                     </div>
                 `;
             }
@@ -3527,7 +3576,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             container.innerHTML = this.workingImages.map((src, idx) => `
                 <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-xs">
-                    <img src="${src}" class="w-full h-full object-cover">
+                    <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'100\' height=\'100\' viewBox=\'0 0 100 100\'%3E%3Crect width=\'100\' height=\'100\' fill=\'%23fff1f2\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-size=\'20\'%3E📷%3C/text%3E%3C/svg%3E';">
                     <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer" data-remove-img-idx="${idx}" title="Xóa ảnh này khỏi album">
                         ✕
                     </button>
@@ -3834,7 +3883,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             tempImg.onerror = () => {
                 if (this.img && this.isOpen) {
-                    this.img.src = currentSrc;
+                    this.img.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'600\' height=\'400\' viewBox=\'0 0 600 400\'%3E%3Crect width=\'600\' height=\'400\' fill=\'%231f2937\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\' font-family=\'sans-serif\' font-size=\'16\' fill=\'%23f43f5e\'%3E📷 Không thể tải ảnh (ảnh có thể đã được xóa)%3C/text%3E%3C/svg%3E';
                     if (this.loader) this.loader.classList.add('hidden');
                 }
             };

@@ -19,10 +19,30 @@ const MEMORIES_FILE = path.join(ROOT_DIR, 'memories.json');
 const BACKUP_FILE = path.join(ROOT_DIR, 'memories.backup.json');
 const LOG_FILE = path.join(ROOT_DIR, 'user_activity.log');
 const AUTH_FILE = path.join(ROOT_DIR, 'auth.json');
+const DELETED_IDS_FILE = path.join(ROOT_DIR, 'deleted_ids.json');
 
 // Dam bao thu muc uploads/ luon ton tai
 if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+// Quan ly danh sach ID ky niem da xoa (tranh bi thiet bi khac dong bo nguoc tro lai)
+function readDeletedIdsFromDisk() {
+    try {
+        if (fs.existsSync(DELETED_IDS_FILE)) {
+            const raw = fs.readFileSync(DELETED_IDS_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            if (Array.isArray(data)) return data.map(String);
+        }
+    } catch (e) {}
+    return [];
+}
+
+function saveDeletedIdsToDisk(ids) {
+    try {
+        const unique = Array.from(new Set((ids || []).map(String)));
+        fs.writeFileSync(DELETED_IDS_FILE, JSON.stringify(unique), 'utf8');
+    } catch (e) {}
 }
 
 // Khoi tao Server Version & Memory Count trong RAM
@@ -54,13 +74,26 @@ try {
 
 // Ham ho tro luu chuoi anh Base64 thanh file vat ly trong thu muc uploads/ (giu 100% do phan giai goc)
 function saveBase64ToUploads(b64String, prefixId, idx) {
-    if (!b64String || typeof b64String !== 'string' || !b64String.startsWith('data:image/')) {
+    if (!b64String || typeof b64String !== 'string') return '';
+    if (!b64String.startsWith('data:image/')) {
         return b64String; // Da la duong dan file (uploads/...) thi giu nguyen
     }
 
     try {
         const commaIdx = b64String.indexOf(',');
         if (commaIdx === -1) return b64String;
+
+        const data = b64String.substring(commaIdx + 1);
+        if (!data || data.length < 20) {
+            console.warn('[UPLOAD] Bo qua du lieu anh base64 qua ngan hoac rong');
+            return '';
+        }
+
+        const buffer = Buffer.from(data, 'base64');
+        if (!buffer || buffer.length < 20) {
+            console.warn('[UPLOAD] Bo qua du lieu anh buffer rong (0 bytes)');
+            return '';
+        }
 
         const header = b64String.substring(0, commaIdx);
         let ext = 'jpg';
@@ -69,11 +102,9 @@ function saveBase64ToUploads(b64String, prefixId, idx) {
             let mExt = match[1].toLowerCase();
             if (mExt === 'jpeg') ext = 'jpg';
             else if (mExt === 'svg+xml') ext = 'svg';
-            else if (/^(jpg|png|webp|gif|svg|avif)$/.test(mExt)) ext = mExt;
+            else if (/^(jpg|png|webp|gif|svg|avif|heic|heif|bmp|tiff?)$/.test(mExt)) ext = mExt;
         }
 
-        const data = b64String.substring(commaIdx + 1);
-        const buffer = Buffer.from(data, 'base64');
         const safeId = String(prefixId || '').replace(/[^a-zA-Z0-9_-]/g, '') || Date.now().toString();
         const fileName = `img_${safeId}_${idx}_${Date.now()}.${ext}`;
         const filePath = path.join(UPLOADS_DIR, fileName);
@@ -82,11 +113,11 @@ function saveBase64ToUploads(b64String, prefixId, idx) {
         return `uploads/${fileName}`;
     } catch (err) {
         console.error('[UPLOAD] Loi luu file anh base64:', err.message);
-        return b64String;
+        return '';
     }
 }
 
-// MIME Types tuong thich web tieu chuan
+// MIME Types tuong thich web tieu chuan (bao gom ca Apple HEIC, HEIF, WebP, AVIF)
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
@@ -99,6 +130,11 @@ const MIME_TYPES = {
     '.svg': 'image/svg+xml',
     '.gif': 'image/gif',
     '.ico': 'image/x-icon',
+    '.heic': 'image/heic',
+    '.heif': 'image/heif',
+    '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff',
+    '.tif': 'image/tiff',
     '.txt': 'text/plain; charset=utf-8',
     '.mp3': 'audio/mpeg',
     '.mp4': 'video/mp4',
@@ -197,6 +233,7 @@ const server = http.createServer(async (req, res) => {
         // GET: Lay danh sach ky niem hien tai
         if (req.method === 'GET') {
             const memories = readMemoriesFromDisk();
+            const deletedIds = readDeletedIdsFromDisk();
             res.writeHead(200, {
                 'Content-Type': 'application/json; charset=utf-8',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -204,7 +241,12 @@ const server = http.createServer(async (req, res) => {
                 'Expires': '0',
                 'X-Server-Version': String(serverVersion)
             });
-            res.end(JSON.stringify(memories));
+            res.end(JSON.stringify({
+                status: 'ok',
+                version: String(serverVersion),
+                memories: memories,
+                deletedIds: deletedIds
+            }));
             return;
         }
 
@@ -219,15 +261,22 @@ const server = http.createServer(async (req, res) => {
 
                 const incomingData = JSON.parse(bodyStr);
                 let incomingMemories = [];
-                let deletedIds = [];
+                let incomingDeletedIds = [];
 
                 if (incomingData && typeof incomingData === 'object' && Array.isArray(incomingData.memories)) {
                     incomingMemories = incomingData.memories;
                     if (Array.isArray(incomingData.deletedIds)) {
-                        deletedIds = incomingData.deletedIds.map(String);
+                        incomingDeletedIds = incomingData.deletedIds.map(String);
                     }
                 } else if (Array.isArray(incomingData)) {
                     incomingMemories = incomingData;
+                }
+
+                // Doc danh sach ID da xoa tren server va merge voi deletedIds moi
+                const storedDeletedIds = readDeletedIdsFromDisk();
+                const allDeletedIds = Array.from(new Set([...storedDeletedIds, ...incomingDeletedIds]));
+                if (incomingDeletedIds.length > 0) {
+                    saveDeletedIdsToDisk(allDeletedIds);
                 }
 
                 // Doc du lieu hien co tren may chu
@@ -245,7 +294,7 @@ const server = http.createServer(async (req, res) => {
                 for (const m of currentMemories) {
                     if (m && m.id) {
                         const idStr = String(m.id);
-                        if (!deletedIds.includes(idStr)) {
+                        if (!allDeletedIds.includes(idStr)) {
                             memoryMap.set(idStr, m);
                         }
                     }
@@ -255,21 +304,22 @@ const server = http.createServer(async (req, res) => {
                 for (const inItem of incomingMemories) {
                     if (!inItem || !inItem.id) continue;
                     const idStr = String(inItem.id);
-                    if (deletedIds.includes(idStr)) continue;
+                    if (allDeletedIds.includes(idStr)) continue;
 
                     const rawImgs = Array.isArray(inItem.images) ? inItem.images : (inItem.image ? [inItem.image] : []);
-                    const cleanImgs = rawImgs.map((img, idx) => saveBase64ToUploads(img, idStr, idx));
+                    const cleanImgs = rawImgs
+                        .map((img, idx) => saveBase64ToUploads(img, idStr, idx))
+                        .filter(img => img && typeof img === 'string' && img.length > 5);
 
                     if (memoryMap.has(idStr)) {
                         const existing = memoryMap.get(idStr);
-                        const exImgs = Array.isArray(existing.images) ? existing.images : (existing.image ? [existing.image] : []);
                         
-                        // Hop nhat danh sach anh
-                        const mergedImgs = Array.from(new Set([...exImgs, ...cleanImgs]));
-
+                        // CHU Y QUAN TRONG: cleanImgs la danh sach anh moi nhat do nguoi dung quyet dinh!
+                        // Neu nguoi dung da bam xoa anh khoi album thi cleanImgs phai THAY THE exImgs,
+                        // TUYET DOI KHONG dung new Set([...exImgs, ...cleanImgs]) vi se lam hoi sinh anh da bi xoa!
                         memoryMap.set(idStr, {
                             id: idStr,
-                            images: mergedImgs,
+                            images: cleanImgs.length > 0 ? cleanImgs : (existing.images || []),
                             content: inItem.content !== undefined ? inItem.content : existing.content,
                             location: inItem.location !== undefined ? inItem.location : existing.location,
                             date: inItem.date !== undefined ? inItem.date : existing.date,
@@ -306,7 +356,8 @@ const server = http.createServer(async (req, res) => {
                     status: 'ok',
                     version: serverVersion,
                     count: memoryCount,
-                    memories: sortedList
+                    memories: sortedList,
+                    deletedIds: allDeletedIds
                 });
             } catch (err) {
                 console.error('[MEMORIES] Loi xu ly merge memories:', err.message);

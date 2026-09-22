@@ -6,6 +6,8 @@
     <title>Ngọc Ánh - Tú Uyên | Kỷ Niệm Yêu Thương</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Thư viện giải mã mọi định dạng ảnh Apple HEIC/HEIF sang JPEG chất lượng cao -->
+    <script src="heic2any.min.js"></script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -126,7 +128,7 @@
 
                     <!-- Nút thêm ảnh mới vào album này -->
                     <div class="mt-2.5">
-                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/jpeg,image/png,image/webp,image/gif,image/*" multiple>
+                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif" multiple>
                         <label for="edit-memory-add-files" class="w-full py-2 px-3 rounded-xl border-2 border-dashed border-rose-200 hover:border-rose-400 hover:bg-rose-50/50 text-rose-600 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -839,7 +841,7 @@
                     
                     <!-- Khung Tải Ảnh (Multiple) -->
                     <div class="mb-6">
-                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/jpeg,image/png,image/webp,image/gif,image/*" multiple>
+                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif" multiple>
                         <label for="media-upload" id="upload-trigger" class="flex flex-col items-center justify-center w-full py-8 sm:py-10 border-2 border-dashed border-rose-300 rounded-2xl bg-rose-50/40 hover:bg-rose-50/80 active:scale-[0.99] transition-all cursor-pointer group select-none">
                             <div class="w-14 h-14 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform shadow-xs">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
