@@ -1,4 +1,4 @@
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $folder = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -62,7 +62,7 @@ if ($publicUrl) {
     Write-Host "   $publicUrl" -ForegroundColor Yellow -BackgroundColor Black
     Write-Host "`n(Bất kỳ ai có đường link trên đều xem và đồng bộ được ảnh/bản đồ của bạn!)" -ForegroundColor Gray
     Write-Host "=======================================================" -ForegroundColor Green
-    
+
     # Lưu vào file link_online.txt
     Set-Content -Path "$folder\link_online.txt" -Value $publicUrl -Encoding UTF8
     
