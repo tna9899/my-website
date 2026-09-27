@@ -13,7 +13,46 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=3.0">
+    <script>
+        // Placeholder SVG chuẩn tương thích 100% với mọi trình duyệt (Safari iOS, Chrome, Edge, Firefox)
+        window.FALLBACK_IMG_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">' +
+            '<defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fff1f2"/><stop offset="50%" stop-color="#ffe4e6"/><stop offset="100%" stop-color="#fecdd3"/></linearGradient></defs>' +
+            '<rect width="800" height="600" rx="28" fill="url(#bg)"/>' +
+            '<circle cx="400" cy="245" r="70" fill="#ffffff" opacity="0.9"/>' +
+            '<path d="M365 210h70l15 20h30a16 16 0 0 1 16 16v56a16 16 0 0 1-16 16H320a16 16 0 0 1-16-16v-56a16 16 0 0 1 16-16h30z" fill="#fb7185"/>' +
+            '<circle cx="400" cy="265" r="28" fill="#ffffff"/><circle cx="400" cy="265" r="19" fill="#e11d48"/>' +
+            '<path d="M435 195c-5-8-16-8-21 0-5-8-16-8-21 0-7 10 3 22 21 34 18-12 28-24 21-34z" fill="#f43f5e"/>' +
+            '<text x="400" y="365" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="24" font-weight="bold" fill="#be123c">Khoảnh khắc kỷ niệm</text>' +
+            '<text x="400" y="400" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="16" fill="#e11d48" opacity="0.85">Ngọc Ánh &amp; Tú Uyên</text>' +
+            '</svg>'
+        );
+        // Xử lý lỗi ảnh tổng quát - Tuyệt đối không để hiện dấu hỏi chấm hoặc icon vỡ
+        window.handleImageError = function(imgEl, memoryId) {
+            if (!imgEl) return;
+            imgEl.onerror = null;
+            imgEl.removeAttribute('alt');
+            imgEl.src = window.FALLBACK_IMG_PLACEHOLDER;
+            imgEl.classList.add('fallback-applied');
+        };
+        // Xử lý lỗi ảnh thumbnail trong bảng thông tin tỉnh thành
+        window.handleThumbError = function(imgEl, memoryId) {
+            if (!imgEl) return;
+            imgEl.onerror = null;
+            const parent = imgEl.parentElement;
+            if (parent) {
+                const fallbackDiv = document.createElement('div');
+                fallbackDiv.className = 'w-12 h-12 rounded-xl bg-gradient-to-tr from-rose-100 to-pink-100 text-rose-500 flex items-center justify-center font-bold text-sm border-2 border-white shadow-xs group-hover:scale-105 transition-transform select-none';
+                fallbackDiv.innerHTML = '💖';
+                fallbackDiv.title = 'Khoảnh khắc kỷ niệm';
+                imgEl.replaceWith(fallbackDiv);
+            } else {
+                imgEl.removeAttribute('alt');
+                imgEl.src = window.FALLBACK_IMG_PLACEHOLDER;
+            }
+        };
+    </script>
 </head>
 <body class="theme-applied min-h-screen text-gray-800 font-quicksand selection:bg-rose-200">
 
@@ -1130,6 +1169,6 @@
     </div>
 
     <!-- Script Logic Chính -->
-    <script src="script.js"></script>
+    <script src="script.js?v=3.0"></script>
 </body>
 </html>

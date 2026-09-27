@@ -3,15 +3,49 @@
  * Toàn bộ logic giao diện, slider, đăng nhập, đổi mật khẩu, đổi màu nền và ghi log
  */
 
-// Ảnh placeholder SVG mã hóa Base64 chuẩn RFC 2397 tương thích 100% tất cả trình duyệt bao gồm Safari/iOS
-window.FALLBACK_IMG_PLACEHOLDER = "data:image/svg+xml;base64," + btoa(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">' +
-    '<rect width="600" height="400" fill="#fff1f2"/>' +
-    '<circle cx="300" cy="180" r="44" fill="#ffe4e6"/>' +
-    '<path d="M282 170a18 18 0 1036 0 18 18 0 00-36 0zm-24 42h84l-26-32-22 26-16-16z" fill="#fb7185"/>' +
-    '<text x="300" y="260" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#e11d48" font-weight="bold">Anh ky niem</text>' +
-    '</svg>'
-);
+// Ảnh placeholder SVG chuẩn tương thích 100% tất cả trình duyệt bao gồm Safari/iOS
+if (!window.FALLBACK_IMG_PLACEHOLDER) {
+    window.FALLBACK_IMG_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">' +
+        '<defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fff1f2"/><stop offset="50%" stop-color="#ffe4e6"/><stop offset="100%" stop-color="#fecdd3"/></linearGradient></defs>' +
+        '<rect width="800" height="600" rx="28" fill="url(#bg)"/>' +
+        '<circle cx="400" cy="245" r="70" fill="#ffffff" opacity="0.9"/>' +
+        '<path d="M365 210h70l15 20h30a16 16 0 0 1 16 16v56a16 16 0 0 1-16 16H320a16 16 0 0 1-16-16v-56a16 16 0 0 1 16-16h30z" fill="#fb7185"/>' +
+        '<circle cx="400" cy="265" r="28" fill="#ffffff"/><circle cx="400" cy="265" r="19" fill="#e11d48"/>' +
+        '<path d="M435 195c-5-8-16-8-21 0-5-8-16-8-21 0-7 10 3 22 21 34 18-12 28-24 21-34z" fill="#f43f5e"/>' +
+        '<text x="400" y="365" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="24" font-weight="bold" fill="#be123c">Khoảnh khắc kỷ niệm</text>' +
+        '<text x="400" y="400" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="16" fill="#e11d48" opacity="0.85">Ngọc Ánh &amp; Tú Uyên</text>' +
+        '</svg>'
+    );
+}
+
+if (!window.handleImageError) {
+    window.handleImageError = function(imgEl, memoryId) {
+        if (!imgEl) return;
+        imgEl.onerror = null;
+        imgEl.removeAttribute('alt');
+        imgEl.src = window.FALLBACK_IMG_PLACEHOLDER;
+        imgEl.classList.add('fallback-applied');
+    };
+}
+
+if (!window.handleThumbError) {
+    window.handleThumbError = function(imgEl, memoryId) {
+        if (!imgEl) return;
+        imgEl.onerror = null;
+        const parent = imgEl.parentElement;
+        if (parent) {
+            const fallbackDiv = document.createElement('div');
+            fallbackDiv.className = 'w-12 h-12 rounded-xl bg-gradient-to-tr from-rose-100 to-pink-100 text-rose-500 flex items-center justify-center font-bold text-sm border-2 border-white shadow-xs group-hover:scale-105 transition-transform select-none';
+            fallbackDiv.innerHTML = '💖';
+            fallbackDiv.title = 'Khoảnh khắc kỷ niệm';
+            imgEl.replaceWith(fallbackDiv);
+        } else {
+            imgEl.removeAttribute('alt');
+            imgEl.src = window.FALLBACK_IMG_PLACEHOLDER;
+        }
+    };
+}
 
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -22,6 +56,23 @@ document.addEventListener('DOMContentLoaded', () => {
         storageKey: 'weddingAppLogs',
         fileHandle: null,
         directoryHandle: null,
+
+        // Gom nhóm log: đủ 10 hành động hoặc mỗi 30 giây gửi 1 gói về backend
+        queue: [],
+        batchSize: 10,
+        flushIntervalMs: 30000,
+        timerId: null,
+
+        init() {
+            // Đảm bảo gửi nốt các log còn tồn đọng khi người dùng rời hoặc ẩn trang
+            window.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') {
+                    this.flush(true);
+                }
+            });
+            window.addEventListener('pagehide', () => this.flush(true));
+            window.addEventListener('beforeunload', () => this.flush(true));
+        },
         
         getLogs() {
             try {
@@ -55,23 +106,58 @@ document.addEventListener('DOMContentLoaded', () => {
                 localStorage.setItem(this.storageKey, JSON.stringify(logs));
             } catch (e) {}
 
-            // 2. Tự động ghi trực tiếp vào file user_activity.log qua máy chủ nội bộ (server.ps1 / khoi_dong.bat)
-            this.sendToServer(logLine);
+            // 2. Gom nhóm vào hàng đợi gửi về server
+            this.queue.push(logLine);
+
+            if (this.queue.length >= this.batchSize) {
+                // Đủ 10 hành động: gửi ngay lập tức
+                this.flush();
+            } else if (!this.timerId) {
+                // Chưa đủ 10 hành động: hẹn giờ tối đa 30 giây gửi 1 gói
+                this.timerId = setTimeout(() => {
+                    this.flush();
+                }, this.flushIntervalMs);
+            }
 
             // 3. Tự động ghi vào file nếu có fileHandle kết nối
             this.writeToFileHandle(logLine);
         },
 
+        // Gửi toàn bộ gói log trong hàng đợi về server
+        async flush(isExiting = false) {
+            if (this.timerId) {
+                clearTimeout(this.timerId);
+                this.timerId = null;
+            }
+
+            if (this.queue.length === 0) return;
+
+            const batch = this.queue.splice(0, this.queue.length);
+            const payload = batch.join('\r\n');
+
+            await this.sendToServer(payload, isExiting);
+        },
+
         // Gửi ngầm tới server nội bộ để ghi vào D:\TNA\Project\anhuyen\user_activity.log
-        async sendToServer(logLine) {
+        async sendToServer(logPayload, isExiting = false) {
+            if (!window.location.protocol || !window.location.protocol.startsWith('http')) {
+                return;
+            }
             const endpoints = ['/api/log'];
             for (const ep of endpoints) {
                 try {
+                    // Nếu đang thoát trang và trình duyệt có sendBeacon, dùng sendBeacon
+                    if (isExiting && navigator.sendBeacon) {
+                        const blob = new Blob([logPayload], { type: 'text/plain;charset=utf-8' });
+                        const sent = navigator.sendBeacon(ep, blob);
+                        if (sent) break;
+                    }
                     await fetch(ep, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: logLine,
-                        mode: 'cors'
+                        body: logPayload,
+                        mode: 'cors',
+                        keepalive: true
                     });
                     break;
                 } catch (e) {}
@@ -92,6 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {}
         }
     };
+    Logger.init();
 
     // Bắt lỗi JavaScript toàn cục tự động
     window.addEventListener('error', (event) => {
@@ -375,7 +462,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             if (Array.isArray(list)) {
-                this._cache = list.filter(m => m && m.id && String(m.id) !== '1790043870491');
+                const deletedIds = this.getDeletedIds();
+                const filtered = list.filter(m => {
+                    if (!m || !m.id) return false;
+                    const idStr = String(m.id);
+                    if (deletedIds.includes(idStr)) return false;
+                    return true;
+                }).map(m => {
+                    const rawImgs = Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []);
+                    const cleanImgs = rawImgs.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+                    return { ...m, images: cleanImgs.length > 0 ? cleanImgs : [window.FALLBACK_IMG_PLACEHOLDER] };
+                });
+
+                // Sắp xếp các album ảnh chuẩn xác theo thời gian (mới nhất lên đầu)
+                filtered.sort((a, b) => {
+                    const timeA = new Date(a.date || a.createdAt || 0).getTime() || 0;
+                    const timeB = new Date(b.date || b.createdAt || 0).getTime() || 0;
+                    if (timeB !== timeA) return timeB - timeA;
+                    return String(b.id || '').localeCompare(String(a.id || ''));
+                });
+
+                this._cache = filtered;
                 return this._cache;
             }
             this._cache = [];
@@ -383,11 +490,17 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async saveAll(memories) {
-            this._cache = [...memories];
+            const sorted = [...(memories || [])].sort((a, b) => {
+                const timeA = new Date(a.date || a.createdAt || 0).getTime() || 0;
+                const timeB = new Date(b.date || b.createdAt || 0).getTime() || 0;
+                if (timeB !== timeA) return timeB - timeA;
+                return String(b.id || '').localeCompare(String(a.id || ''));
+            });
+            this._cache = sorted;
 
             // 1. Lưu vào LocalStorage
             try {
-                localStorage.setItem(this.storageKey, JSON.stringify(memories));
+                localStorage.setItem(this.storageKey, JSON.stringify(sorted));
             } catch (e) {
                 Logger.log('STORAGE_QUOTA_NOTICE', 'LocalStorage đã đầy, chuyển lưu an toàn qua IndexedDB & Server');
             }
@@ -549,11 +662,8 @@ document.addEventListener('DOMContentLoaded', () => {
             // Hàm lọc và làm sạch danh sách ảnh hợp lệ của 1 kỷ niệm
             const sanitizeImages = (rawImgs) => {
                 const arr = Array.isArray(rawImgs) ? rawImgs : (rawImgs ? [rawImgs] : []);
-                return arr.filter(img => 
-                    img && typeof img === 'string' && img.trim().length > 5 && 
-                    !img.includes('img_up_0_1790043870482') && 
-                    !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
-                );
+                const clean = arr.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+                return clean.length > 0 ? clean : [window.FALLBACK_IMG_PLACEHOLDER];
             };
 
             // 1. Nạp danh sách server trước (Server là nguồn chân lý cho dữ liệu đã đồng bộ)
@@ -562,34 +672,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const idStr = String(item.id);
                 if (deletedIds.includes(idStr)) continue;
 
-                const cleanImgs = sanitizeImages(item.images || item.image);
-                if (cleanImgs.length > 0) {
-                    map.set(idStr, { ...item, images: cleanImgs });
-                }
+                map.set(idStr, { ...item, images: sanitizeImages(item.images || item.image) });
             }
 
-            // 2. Chỉ bổ sung các kỷ niệm mới ở máy local CHƯA TỪNG có trên server (nếu mới tạo gần đây trong 5 phút)
+            // 2. Giữ lại các kỷ niệm ở máy local chưa có trên server (nếu chưa bị xóa)
             for (const localItem of localMemories) {
                 if (!localItem || !localItem.id) continue;
                 const idStr = String(localItem.id);
                 if (deletedIds.includes(idStr)) continue;
 
                 if (!map.has(idStr)) {
-                    const isRecent = localItem.createdAt && (Date.now() - new Date(localItem.createdAt).getTime() < 300000);
-                    if (localItem._isOfflinePending || isRecent) {
-                        const cleanImgs = sanitizeImages(localItem.images || localItem.image);
-                        if (cleanImgs.length > 0) {
-                            map.set(idStr, { ...localItem, images: cleanImgs });
-                        }
-                    }
+                    map.set(idStr, { ...localItem, images: sanitizeImages(localItem.images || localItem.image) });
                 }
             }
 
             const result = Array.from(map.values());
             result.sort((a, b) => {
-                const dateA = a.date || a.createdAt || '';
-                const dateB = b.date || b.createdAt || '';
-                return dateB.localeCompare(dateA);
+                const timeA = new Date(a.date || a.createdAt || 0).getTime() || 0;
+                const timeB = new Date(b.date || b.createdAt || 0).getTime() || 0;
+                if (timeB !== timeA) return timeB - timeA;
+                return String(b.id || '').localeCompare(String(a.id || ''));
             });
             return result;
         },
@@ -638,7 +740,11 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const idbList = await IDBStorage.getAll();
                 if (idbList && idbList.length > 0) {
-                    const cleanList = idbList.filter(m => m && m.id && String(m.id) !== '1790043870491');
+                    const deletedIds = this.getDeletedIds();
+                    const cleanList = idbList.filter(m => {
+                        if (!m || !m.id || deletedIds.includes(String(m.id))) return false;
+                        return true;
+                    });
                     this._cache = cleanList;
                     try { localStorage.setItem(this.storageKey, JSON.stringify(cleanList)); } catch (e) {}
                 }
@@ -1307,7 +1413,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const thumbWrap = document.createElement('div');
             thumbWrap.className = 'relative group aspect-square rounded-xl overflow-hidden border border-gray-200 bg-white shadow-xs';
             thumbWrap.innerHTML = `
-                <img src="${src}" class="w-full h-full object-cover">
+                <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
                 <button type="button" class="absolute top-1 right-1 bg-black/70 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer" data-remove-idx="${idx}" title="Xóa ảnh này">
                     ✕
                 </button>
@@ -1584,13 +1690,11 @@ document.addEventListener('DOMContentLoaded', () => {
         memories.forEach((item) => {
             const memoryId = item.id;
             const rawImgs = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
-            const images = rawImgs.filter(img => 
-                img && typeof img === 'string' && img.trim().length > 5 && 
-                !img.includes('img_up_0_1790043870482') && 
-                !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
-            );
+            let images = rawImgs.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+            if (images.length === 0) {
+                images = [window.FALLBACK_IMG_PLACEHOLDER];
+            }
             const totalImages = images.length;
-            if (totalImages === 0) return; // Bỏ qua nếu không có ảnh hợp lệ
 
             carouselState[memoryId] = Math.max(0, Math.min(carouselState[memoryId] || 0, totalImages - 1));
 
@@ -1604,6 +1708,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hiển thị Album xếp chồng cách nhau 0.5cm
                 mediaMarkup = `
                     <div class="stacked-deck-container" id="carousel-${memoryId}">
+                        <!-- Gợi ý vuốt ảnh trên điện thoại -->
+                        <div class="carousel-swipe-hint">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M7 16l-4-4m0 0l4-4m-4 4h18m-4 4l4-4m0 0l-4-4" />
+                            </svg>
+                            <span>Vuốt ảnh ‹ ›</span>
+                        </div>
+
                         <!-- Counter Badge với hiệu ứng đồng hồ xoay -->
                         <div class="carousel-counter" id="carousel-counter-${memoryId}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-rose-300 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1617,7 +1729,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${images.map((imgSrc, imgIdx) => `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
-                                        <img src="${imgSrc}" alt="Kỷ niệm tình yêu" loading="eager" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
+                                        <img src="${imgSrc}" alt="" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
                                     </div>
                                 </div>
                             `).join('')}
@@ -1647,7 +1759,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hiển thị 1 ảnh FULL tỷ lệ
                 mediaMarkup = `
                     <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                        <img src="${images[0]}" alt="Kỷ niệm tình yêu" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
+                        <img src="${images[0]}" alt="" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
                     </div>
                 `;
             }
@@ -1728,6 +1840,64 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (totalImages === 1) {
                 const singleFrame = card.querySelector(`[data-single-frame="${memoryId}"]`);
                 if (singleFrame) {
+                    let sStartX = 0;
+                    let sStartY = 0;
+                    let sHasMoved = false;
+                    let sRafId = null;
+                    const singleImg = singleFrame.querySelector('img');
+
+                    singleFrame.addEventListener('touchstart', (e) => {
+                        if (!e.touches || e.touches.length !== 1) return;
+                        sStartX = e.touches[0].clientX;
+                        sStartY = e.touches[0].clientY;
+                        sHasMoved = false;
+                    }, { passive: true });
+
+                    singleFrame.addEventListener('touchmove', (e) => {
+                        // Chặn cuộn trang xuống/lên khi chạm trên khu vực ảnh đơn
+                        if (e.cancelable) e.preventDefault();
+                        if (!e.touches || e.touches.length !== 1) return;
+                        const clientX = e.touches[0].clientX;
+                        const clientY = e.touches[0].clientY;
+
+                        // Dùng requestAnimationFrame để giới hạn tần suất xử lý cử chỉ vuốt chạm
+                        if (!sRafId) {
+                            sRafId = requestAnimationFrame(() => {
+                                sRafId = null;
+                                const diffX = clientX - sStartX;
+                                const diffY = clientY - sStartY;
+                                if (Math.abs(diffX) > 6 || Math.abs(diffY) > 6) {
+                                    sHasMoved = true;
+                                }
+                                if (singleImg && sHasMoved) {
+                                    singleImg.style.transition = 'none';
+                                    singleImg.style.transform = `translateX(${diffX * 0.25}px)`;
+                                }
+                            });
+                        }
+                    }, { passive: false });
+
+                    singleFrame.addEventListener('touchend', () => {
+                        if (sRafId) {
+                            cancelAnimationFrame(sRafId);
+                            sRafId = null;
+                        }
+                        if (singleImg) {
+                            singleImg.style.transition = 'transform 0.3s ease';
+                            singleImg.style.transform = 'none';
+                        }
+                        if (sHasMoved) {
+                            const suppressClick = (ev) => {
+                                ev.stopPropagation();
+                                ev.preventDefault();
+                            };
+                            singleFrame.addEventListener('click', suppressClick, { capture: true, once: true });
+                            setTimeout(() => {
+                                singleFrame.removeEventListener('click', suppressClick, { capture: true });
+                            }, 350);
+                        }
+                    }, { passive: false });
+
                     singleFrame.addEventListener('click', (e) => {
                         e.stopPropagation();
                         const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
@@ -1750,6 +1920,243 @@ document.addEventListener('DOMContentLoaded', () => {
                     carouselElem.addEventListener('mouseenter', () => stopAutoSlide(memoryId));
                     // Tiếp tục tự động chuyển khi chuột rời đi
                     carouselElem.addEventListener('mouseleave', () => startAutoSlide(memoryId, totalImages));
+
+                    // =========================================================
+                    // HỖ TRỢ VUỐT TRÊN ĐIỆN THOẠI & CHẶN CUỘN TRANG TẠI KHU VỰC ẢNH
+                    // Ứng dụng requestAnimationFrame để tối ưu hóa tần suất xử lý vuốt chạm
+                    // =========================================================
+                    let touchStartX = 0;
+                    let touchStartY = 0;
+                    let touchCurrentX = 0;
+                    let touchCurrentY = 0;
+                    let touchStartTime = 0;
+                    let isTouching = false;
+                    let hasMoved = false;
+                    let activeCard = null;
+                    let lastTouchTime = 0;
+                    let rafTouchId = null;
+
+                    const handleTouchStart = (e) => {
+                        if (e.target.closest('.carousel-btn') || e.target.closest('.carousel-dots')) {
+                            return;
+                        }
+                        if (!e.touches || e.touches.length !== 1) return;
+
+                        lastTouchTime = Date.now();
+                        const touch = e.touches[0];
+                        touchStartX = touch.clientX;
+                        touchStartY = touch.clientY;
+                        touchCurrentX = touch.clientX;
+                        touchCurrentY = touch.clientY;
+                        touchStartTime = Date.now();
+                        isTouching = true;
+                        hasMoved = false;
+
+                        stopAutoSlide(memoryId);
+
+                        const currentIdx = carouselState[memoryId] || 0;
+                        const stage = carouselElem.querySelector('.stacked-deck-stage');
+                        if (stage) {
+                            activeCard = stage.querySelector(`.stacked-card[data-card-idx="${currentIdx}"]`);
+                        }
+                    };
+
+                    const handleTouchMove = (e) => {
+                        if (!isTouching) return;
+
+                        // Chặn cuộn trang web xuống/lên khi ngón tay đang chạm trên vùng ảnh
+                        if (e.cancelable) {
+                            e.preventDefault();
+                        }
+
+                        if (!e.touches || e.touches.length !== 1) return;
+                        const touch = e.touches[0];
+                        touchCurrentX = touch.clientX;
+                        touchCurrentY = touch.clientY;
+
+                        // Dùng requestAnimationFrame để đồng bộ với tần số quét màn hình (60Hz / 120Hz)
+                        if (!rafTouchId) {
+                            rafTouchId = requestAnimationFrame(() => {
+                                rafTouchId = null;
+                                if (!isTouching || !activeCard) return;
+
+                                const diffX = touchCurrentX - touchStartX;
+                                const diffY = touchCurrentY - touchStartY;
+
+                                if (Math.abs(diffX) > 6 || Math.abs(diffY) > 6) {
+                                    hasMoved = true;
+                                }
+
+                                // Phản hồi trực quan kéo trượt mượt mà theo ngón tay
+                                if (hasMoved) {
+                                    activeCard.style.transition = 'none';
+                                    const rotateDeg = Math.max(-10, Math.min(10, diffX * 0.04));
+                                    const opacityVal = Math.max(0.75, 1 - Math.abs(diffX) / 800);
+                                    activeCard.style.transform = `translate3d(${diffX * 0.65}px, 0, 0) scale(1) rotate(${rotateDeg}deg)`;
+                                    activeCard.style.opacity = opacityVal;
+                                }
+                            });
+                        }
+                    };
+
+                    const handleTouchEnd = () => {
+                        if (!isTouching) return;
+                        isTouching = false;
+                        lastTouchTime = Date.now();
+
+                        if (rafTouchId) {
+                            cancelAnimationFrame(rafTouchId);
+                            rafTouchId = null;
+                        }
+
+                        const diffX = touchCurrentX - touchStartX;
+                        const duration = Date.now() - touchStartTime;
+
+                        if (activeCard) {
+                            activeCard.style.transition = '';
+                        }
+
+                        if (hasMoved) {
+                            // Chặn sự kiện click mở Lightbox nếu đang vuốt
+                            const suppressClick = (ev) => {
+                                ev.stopPropagation();
+                                ev.preventDefault();
+                            };
+                            carouselElem.addEventListener('click', suppressClick, { capture: true, once: true });
+                            setTimeout(() => {
+                                carouselElem.removeEventListener('click', suppressClick, { capture: true });
+                            }, 350);
+
+                            // Kiểm tra hướng vuốt:
+                            // Vuốt sang trái (diffX < -35) -> ảnh tiếp theo (next)
+                            // Vuốt sang phải (diffX > 35) -> ảnh trước đó (prev)
+                            const isSwipe = Math.abs(diffX) > 35 || (Math.abs(diffX) > 20 && duration < 300);
+
+                            if (isSwipe) {
+                                if (diffX < 0) {
+                                    slideTo(memoryId, (carouselState[memoryId] || 0) + 1, totalImages, true);
+                                } else {
+                                    slideTo(memoryId, (carouselState[memoryId] || 0) - 1, totalImages, true);
+                                }
+                            } else {
+                                slideTo(memoryId, carouselState[memoryId] || 0, totalImages, false);
+                            }
+                        } else {
+                            if (activeCard) {
+                                slideTo(memoryId, carouselState[memoryId] || 0, totalImages, false);
+                            }
+                        }
+
+                        activeCard = null;
+                        startAutoSlide(memoryId, totalImages);
+                    };
+
+                    carouselElem.addEventListener('touchstart', handleTouchStart, { passive: true });
+                    carouselElem.addEventListener('touchmove', handleTouchMove, { passive: false });
+                    carouselElem.addEventListener('touchend', handleTouchEnd, { passive: false });
+                    carouselElem.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+                    // Hỗ trợ thêm kéo chuột trên máy tính (Mouse Drag) với requestAnimationFrame
+                    let isMouseDown = false;
+                    let mouseStartX = 0;
+                    let mouseCurrentX = 0;
+                    let mouseStartTime = 0;
+                    let mouseMoved = false;
+                    let rafMouseId = null;
+
+                    const onMouseMove = (e) => {
+                        if (!isMouseDown) return;
+                        mouseCurrentX = e.clientX;
+
+                        if (!rafMouseId) {
+                            rafMouseId = requestAnimationFrame(() => {
+                                rafMouseId = null;
+                                if (!isMouseDown || !activeCard) return;
+
+                                const diffX = mouseCurrentX - mouseStartX;
+                                if (Math.abs(diffX) > 6) {
+                                    mouseMoved = true;
+                                }
+                                if (mouseMoved) {
+                                    activeCard.style.transition = 'none';
+                                    const rotateDeg = Math.max(-10, Math.min(10, diffX * 0.04));
+                                    const opacityVal = Math.max(0.75, 1 - Math.abs(diffX) / 800);
+                                    activeCard.style.transform = `translate3d(${diffX * 0.65}px, 0, 0) scale(1) rotate(${rotateDeg}deg)`;
+                                    activeCard.style.opacity = opacityVal;
+                                }
+                            });
+                        }
+                    };
+
+                    const onMouseUp = () => {
+                        if (!isMouseDown) return;
+                        isMouseDown = false;
+                        window.removeEventListener('mousemove', onMouseMove);
+                        window.removeEventListener('mouseup', onMouseUp);
+
+                        if (rafMouseId) {
+                            cancelAnimationFrame(rafMouseId);
+                            rafMouseId = null;
+                        }
+
+                        const diffX = mouseCurrentX - mouseStartX;
+                        const duration = Date.now() - mouseStartTime;
+
+                        if (activeCard) {
+                            activeCard.style.transition = '';
+                        }
+
+                        if (mouseMoved) {
+                            const suppressClick = (ev) => {
+                                ev.stopPropagation();
+                                ev.preventDefault();
+                            };
+                            carouselElem.addEventListener('click', suppressClick, { capture: true, once: true });
+                            setTimeout(() => {
+                                carouselElem.removeEventListener('click', suppressClick, { capture: true });
+                            }, 350);
+
+                            const isSwipe = Math.abs(diffX) > 35 || (Math.abs(diffX) > 20 && duration < 300);
+                            if (isSwipe) {
+                                if (diffX < 0) {
+                                    slideTo(memoryId, (carouselState[memoryId] || 0) + 1, totalImages, true);
+                                } else {
+                                    slideTo(memoryId, (carouselState[memoryId] || 0) - 1, totalImages, true);
+                                }
+                            } else {
+                                slideTo(memoryId, carouselState[memoryId] || 0, totalImages, false);
+                            }
+                        } else {
+                            if (activeCard) {
+                                slideTo(memoryId, carouselState[memoryId] || 0, totalImages, false);
+                            }
+                        }
+
+                        activeCard = null;
+                        startAutoSlide(memoryId, totalImages);
+                    };
+
+                    carouselElem.addEventListener('mousedown', (e) => {
+                        if (Date.now() - lastTouchTime < 500) return;
+                        if (e.button !== 0 || e.target.closest('.carousel-btn') || e.target.closest('.carousel-dots')) return;
+
+                        isMouseDown = true;
+                        mouseStartX = e.clientX;
+                        mouseCurrentX = e.clientX;
+                        mouseStartTime = Date.now();
+                        mouseMoved = false;
+
+                        stopAutoSlide(memoryId);
+
+                        const currentIdx = carouselState[memoryId] || 0;
+                        const stage = carouselElem.querySelector('.stacked-deck-stage');
+                        if (stage) {
+                            activeCard = stage.querySelector(`.stacked-card[data-card-idx="${currentIdx}"]`);
+                        }
+
+                        window.addEventListener('mousemove', onMouseMove);
+                        window.addEventListener('mouseup', onMouseUp);
+                    });
                 }
 
                 const prevBtn = card.querySelector(`[data-prev="${memoryId}"]`);
@@ -1760,7 +2167,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     prevBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
                         slideTo(memoryId, (carouselState[memoryId] || 0) - 1, totalImages, true);
-                        startAutoSlide(memoryId, totalImages); // Reset lại chu kỳ 2s
+                        startAutoSlide(memoryId, totalImages);
                     });
                 }
 
@@ -1768,14 +2175,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     nextBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
                         slideTo(memoryId, (carouselState[memoryId] || 0) + 1, totalImages, true);
-                        startAutoSlide(memoryId, totalImages); // Reset lại chu kỳ 2s
+                        startAutoSlide(memoryId, totalImages);
                     });
                 }
 
                 dots.forEach(d => {
                     d.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        const idx = parseInt(d.getAttribute('data-dot-idx'));
+                        const idx = parseInt(d.getAttribute('data-dot-idx'), 10);
                         slideTo(memoryId, idx, totalImages, true);
                         startAutoSlide(memoryId, totalImages);
                     });
@@ -2796,7 +3203,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             return `
                                 <div class="relative group flex-shrink-0 cursor-pointer" onclick="window.scrollToMemory('${m.id}')" title="${m.date || ''}: ${m.content ? m.content.substring(0, 30) : ''}">
                                     ${firstImg ? `
-                                        <img src="${firstImg}" class="w-12 h-12 rounded-xl object-cover border-2 border-white shadow-xs group-hover:scale-105 transition-transform">
+                                        <img src="${firstImg}" alt="" class="w-12 h-12 rounded-xl object-cover border-2 border-white shadow-xs group-hover:scale-105 transition-transform" onerror="window.handleThumbError(this, '${m.id}')">
                                     ` : `
                                         <div class="w-12 h-12 rounded-xl bg-rose-200 text-rose-600 flex items-center justify-center font-bold text-xs border border-white">Ảnh</div>
                                     `}
@@ -2903,6 +3310,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 wrapper.classList.add('is-panning');
             });
 
+            let mapRafId = null;
+
             window.addEventListener('mousemove', (e) => {
                 if (!this.isPanning) return;
                 const dx = e.clientX - this.startX;
@@ -2913,10 +3322,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rect = svg.getBoundingClientRect();
                 const svgDx = dx * (this.viewW / rect.width);
                 const svgDy = dy * (this.viewH / rect.height);
-                this.setPan(this.startViewX - svgDx, this.startViewY - svgDy);
+                const targetX = this.startViewX - svgDx;
+                const targetY = this.startViewY - svgDy;
+
+                if (!mapRafId) {
+                    mapRafId = requestAnimationFrame(() => {
+                        mapRafId = null;
+                        this.setPan(targetX, targetY);
+                    });
+                }
             });
 
             window.addEventListener('mouseup', () => {
+                if (mapRafId) {
+                    cancelAnimationFrame(mapRafId);
+                    mapRafId = null;
+                }
                 if (this.isPanning) {
                     this.isPanning = false;
                     wrapper.classList.remove('is-panning');
@@ -2954,17 +3375,34 @@ document.addEventListener('DOMContentLoaded', () => {
                     const scale = dist / initialPinchDist;
                     const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
                     const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                    this.zoomToPoint(initialPinchZoom * scale, midX, midY);
+                    if (!mapRafId) {
+                        mapRafId = requestAnimationFrame(() => {
+                            mapRafId = null;
+                            this.zoomToPoint(initialPinchZoom * scale, midX, midY);
+                        });
+                    }
                 } else if (e.touches.length === 1 && this.currentZoom > 1.05) {
                     if (e.cancelable) e.preventDefault();
                     const rect = svg.getBoundingClientRect();
                     const dx = (e.touches[0].clientX - touchStartX) * (this.viewW / rect.width);
                     const dy = (e.touches[0].clientY - touchStartY) * (this.viewH / rect.height);
-                    this.setPan(touchStartViewX - dx, touchStartViewY - dy);
+                    const targetX = touchStartViewX - dx;
+                    const targetY = touchStartViewY - dy;
+
+                    if (!mapRafId) {
+                        mapRafId = requestAnimationFrame(() => {
+                            mapRafId = null;
+                            this.setPan(targetX, targetY);
+                        });
+                    }
                 }
             }, { passive: false });
 
             wrapper.addEventListener('touchend', () => {
+                if (mapRafId) {
+                    cancelAnimationFrame(mapRafId);
+                    mapRafId = null;
+                }
                 initialPinchDist = null;
             }, { passive: true });
 
@@ -3297,16 +3735,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             <clipPath id="clip-pin-${p.id}">
                                 <circle class="pin-clip-circle" cx="${px}" cy="${py}" r="${photoR}" />
                             </clipPath>
-                            <filter id="pin-shadow-${p.id}" x="-30%" y="-30%" width="160%" height="160%">
-                                <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#e11d48" flood-opacity="0.38"/>
-                            </filter>
                         </defs>
-                        <!-- Vòng hào quang đập nhịp tim phát sáng -->
+                        <!-- Vòng hào quang tĩnh nhẹ nhàng -->
                         <circle cx="${px}" cy="${py}" r="${photoR + 7}" class="province-pin-halo pin-halo-circle" fill="rgba(244, 63, 94, 0.22)" stroke="#e11d48" stroke-width="1.5" />
-                        <!-- Khung viền ảnh lãng mạn -->
-                        <circle cx="${px}" cy="${py}" r="${photoR + 2.5}" class="pin-frame-circle" fill="#ffffff" stroke="#e11d48" stroke-width="2.5" filter="url(#pin-shadow-${p.id})" />
+                        <!-- Khung viền ảnh lãng mạn sắc nét -->
+                        <circle cx="${px}" cy="${py}" r="${photoR + 2.5}" class="pin-frame-circle" fill="#ffffff" stroke="#e11d48" stroke-width="2.5" />
                         <!-- Ảnh đại diện chụp tại địa điểm này -->
-                        <image class="pin-photo-img" href="${firstPhoto}" x="${px - photoR}" y="${py - photoR}" width="${photoR * 2}" height="${photoR * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#clip-pin-${p.id})" />
+                        <image class="pin-photo-img" href="${firstPhoto}" x="${px - photoR}" y="${py - photoR}" width="${photoR * 2}" height="${photoR * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#clip-pin-${p.id})" onerror="this.onerror=null; this.setAttribute('href', window.FALLBACK_IMG_PLACEHOLDER);" />
                         <!-- Huy hiệu trái tim nhỏ xinh ở góc trên -->
                         <g class="pin-heart-badge" transform="translate(${px + photoR * 0.72}, ${py - photoR * 0.72})">
                             <circle cx="0" cy="0" r="${Math.max(5.5, photoR * 0.32)}" fill="#e11d48" stroke="#ffffff" stroke-width="1.5" />
@@ -3314,7 +3749,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </g>
                         <!-- Thẻ tên địa danh và số lượng ảnh -->
                         <g class="pin-label-badge" transform="translate(${px}, ${py + photoR + 4})">
-                            <rect x="-${badgeW / 2}" y="0" width="${badgeW}" height="${badgeH}" rx="${badgeH / 2}" class="pin-badge-rect" fill="#ffffff" stroke="#f43f5e" stroke-width="1.2" filter="url(#pin-shadow-${p.id})" />
+                            <rect x="-${badgeW / 2}" y="0" width="${badgeW}" height="${badgeH}" rx="${badgeH / 2}" class="pin-badge-rect" fill="#ffffff" stroke="#f43f5e" stroke-width="1.2" />
                             <text x="0" y="${badgeH * 0.72}" text-anchor="middle" class="pin-badge-text font-bold" font-size="${badgeFontSize}" fill="#be123c">
                                 ${p.shortName} (${matched.length})
                             </text>
@@ -3453,8 +3888,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }, duration + 50);
         };
 
-        // Di chuột tới đâu, tim bung tỏa tới đó
+        // Di chuột tới đâu, tim bung tỏa tới đó (bỏ qua khi hover vào bản đồ)
         window.addEventListener('mousemove', (e) => {
+            if (e.target && (e.target.closest('.map-svg-wrapper') || e.target.closest('.vietnam-map-card') || e.target.closest('.province-quick-filter-scroll'))) {
+                return;
+            }
             const now = performance.now();
             const dist = Math.hypot(e.clientX - lastX, e.clientY - lastY);
 
@@ -3468,6 +3906,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Bấm chuột thì bung chùm trái tim nở rộ 360 độ
         window.addEventListener('click', (e) => {
+            if (e.target && (e.target.closest('.map-svg-wrapper') || e.target.closest('.vietnam-map-card'))) {
+                return;
+            }
             const count = 7;
             for (let i = 0; i < count; i++) {
                 const angle = (i / count) * Math.PI * 2 + (Math.random() * 0.4 - 0.2);
@@ -3475,13 +3916,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, { passive: true });
 
-        // Hỗ trợ lướt ngón tay trên điện thoại / tablet
+        // Hỗ trợ lướt ngón tay trên điện thoại / tablet (bỏ qua khi vuốt bản đồ hoặc album để tránh giật lag)
         window.addEventListener('touchmove', (e) => {
             if (e.touches && e.touches.length > 0) {
                 const touch = e.touches[0];
+                if (e.target && (e.target.closest('.map-svg-wrapper') || e.target.closest('.vietnam-map-card') || e.target.closest('.carousel-track') || e.target.closest('.single-photo-card') || e.target.closest('.modal-image-viewer'))) {
+                    return;
+                }
                 const now = performance.now();
                 const dist = Math.hypot(touch.clientX - lastX, touch.clientY - lastY);
-                if (dist >= minDistance || now - lastTime >= minInterval) {
+                if (dist >= minDistance * 1.5 || now - lastTime >= minInterval * 2) {
                     lastX = touch.clientX;
                     lastY = touch.clientY;
                     lastTime = now;
@@ -3566,10 +4010,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const memories = MemoryStore.getAll();
             const item = memories.find(m => String(m.id) === String(memoryId));
             if (!item) return;
-
             this.currentMemoryId = String(memoryId);
             const rawImgs = Array.isArray(item.images) ? item.images : (item.image ? [item.image] : []);
-            this.workingImages = [...rawImgs];
+            this.workingImages = rawImgs.filter(img => 
+                img && typeof img === 'string' && img.trim().length > 5
+            );
 
             const inputId = document.getElementById('edit-memory-id');
             const inputContent = document.getElementById('edit-memory-content');
@@ -3734,6 +4179,7 @@ document.addEventListener('DOMContentLoaded', () => {
         touchStartY: 0,
         touchStartTime: 0,
         lastTapTime: 0,
+        rafId: null,
 
         // Elements
         modal: null,
@@ -3843,12 +4289,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         open(images, startIndex = 0, caption = '', subtitle = '') {
             const raw = Array.isArray(images) ? images : [images];
-            const valid = raw.filter(img => 
-                img && typeof img === 'string' && img.trim().length > 5 &&
-                !img.includes('img_up_0_1790043870482') &&
-                !/img_1789894268399_(7|8|9|10|11|12|13)_/.test(img)
-            );
-            if (!valid.length) return;
+            let valid = raw.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+            if (!valid.length) {
+                valid = [window.FALLBACK_IMG_PLACEHOLDER];
+            }
 
             this.images = valid;
             this.currentIndex = Math.max(0, Math.min(startIndex, this.images.length - 1));
@@ -3885,6 +4329,10 @@ document.addEventListener('DOMContentLoaded', () => {
         close() {
             if (!this.isOpen) return;
             this.isOpen = false;
+            if (this.rafId) {
+                cancelAnimationFrame(this.rafId);
+                this.rafId = null;
+            }
             if (this.modal) {
                 this.modal.classList.remove('is-open');
                 setTimeout(() => {
@@ -3983,6 +4431,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.stage.classList.remove('is-panning');
                 }
             }
+        },
+
+        // Đồng bộ vẽ với tần số quét màn hình (rAF) để giảm tải CPU/GPU
+        requestTransform(animated = false) {
+            if (this.rafId) return;
+            this.rafId = requestAnimationFrame(() => {
+                this.rafId = null;
+                this.applyTransform(animated);
+            });
         },
 
         zoomIn(factor = 1.32) {
@@ -4085,12 +4542,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             this.translateX = newX;
             this.translateY = newY;
-            this.applyTransform(false);
+            this.requestTransform(false);
         },
 
         onMouseUp(e) {
             if (!this.isDragging) return;
             this.isDragging = false;
+            if (this.rafId) {
+                cancelAnimationFrame(this.rafId);
+                this.rafId = null;
+            }
             if (this.stage && this.scale <= 1.05) {
                 this.stage.classList.remove('is-panning');
             }
@@ -4144,8 +4605,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ratio = dist / this.touchStartDist;
                 let newScale = Math.min(this.maxScale, Math.max(this.minScale, this.touchStartScale * ratio));
                 this.scale = Math.round(newScale * 100) / 100;
-                this.applyTransform(false);
+                this.requestTransform(false);
             } else if (this.touchMode === 'pan' && e.touches.length === 1) {
+                if (e.cancelable) e.preventDefault();
                 const touch = e.touches[0];
                 const dx = touch.clientX - this.touchStartX;
                 const dy = touch.clientY - this.touchStartY;
@@ -4159,13 +4621,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     e.preventDefault();
                     this.translateX = touch.clientX - this.dragStartX;
                     this.translateY = touch.clientY - this.dragStartY;
-                    this.applyTransform(false);
+                    this.requestTransform(false);
                 }
             }
         },
 
         onTouchEnd(e) {
             if (!this.isOpen) return;
+
+            if (this.rafId) {
+                cancelAnimationFrame(this.rafId);
+                this.rafId = null;
+            }
 
             if (this.touchMode === 'pan' && this.scale <= 1.05 && e.changedTouches.length === 1) {
                 const touch = e.changedTouches[0];

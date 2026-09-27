@@ -153,7 +153,10 @@ function Save-Base64ToUploads($b64String, $prefixId, $idx) {
         $filePath = Join-Path $uploadsFolder $fileName
         
         [System.IO.File]::WriteAllBytes($filePath, $bytes)
-        return "uploads/$fileName"
+        if ((Test-Path $filePath) -and ((Get-Item $filePath).Length -gt 20)) {
+            return "uploads/$fileName"
+        }
+        return ""
     } catch {
         return ""
     }
@@ -210,12 +213,12 @@ while ($listener.IsListening) {
             try {
                 $upData = ConvertFrom-Json $body -ErrorAction Stop
                 if ($upData -is [PSCustomObject] -and $upData.PSObject.Properties['image']) {
-                    $u = Save-Base64ToUploads $upData.image "up" 0
+                    $u = Save-Base64ToUploads $upData.image "photo" 0
                     $savedUrls.Add($u)
                 } elseif ($upData -is [PSCustomObject] -and $upData.PSObject.Properties['images']) {
                     $idx = 0
                     foreach ($img in $upData.images) {
-                        $u = Save-Base64ToUploads $img "up" $idx
+                        $u = Save-Base64ToUploads $img "photo" $idx
                         $savedUrls.Add($u)
                         $idx++
                     }
@@ -519,7 +522,10 @@ while ($listener.IsListening) {
         $urlPath = [System.Uri]::UnescapeDataString($rawPath).Replace('/', '\')
         $filePath = Join-Path $folder $urlPath
 
-        if (Test-Path $filePath -PathType Leaf) {
+        $isUploads = $rawPath.ToLower().StartsWith("uploads/") -or $rawPath.ToLower().StartsWith("uploads\")
+        $fallbackSvgPath = Join-Path $folder "uploads\fallback.svg"
+
+        if ((Test-Path $filePath -PathType Leaf) -and ((Get-Item $filePath).Length -gt 20)) {
             $bytes = [System.IO.File]::ReadAllBytes($filePath)
             
             $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
@@ -594,6 +600,20 @@ while ($listener.IsListening) {
             $response.StatusCode = 200
             $response.ContentLength64 = $bytes.Length
             $response.OutputStream.Write($bytes, 0, $bytes.Length)
+        } elseif ($isUploads) {
+            # Neu file anh trong uploads khong ton tai hoac bi 0 byte, tra ve anh SVG lang man mac dinh (tranh 100% dau hoi cham va vo anh)
+            $svgBytes = $null
+            if (Test-Path $fallbackSvgPath) {
+                $svgBytes = [System.IO.File]::ReadAllBytes($fallbackSvgPath)
+            } else {
+                $rawSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><rect width="800" height="600" fill="#fff1f2"/><circle cx="400" cy="245" r="70" fill="#ffffff" opacity="0.9"/><text x="400" y="360" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="bold" fill="#e11d48">Khoảnh khắc kỷ niệm</text><text x="400" y="395" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#be123c">Ngọc Ánh &amp; Tú Uyên</text></svg>'
+                $svgBytes = [System.Text.Encoding]::UTF8.GetBytes($rawSvg)
+            }
+            $response.ContentType = "image/svg+xml; charset=utf-8"
+            $response.Headers.Add("Cache-Control", "no-cache, no-store")
+            $response.StatusCode = 200
+            $response.ContentLength64 = $svgBytes.Length
+            $response.OutputStream.Write($svgBytes, 0, $svgBytes.Length)
         } else {
             $response.StatusCode = 404
             $notFound = [System.Text.Encoding]::UTF8.GetBytes("404 Not Found")

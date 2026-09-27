@@ -110,7 +110,10 @@ function saveBase64ToUploads(b64String, prefixId, idx) {
         const filePath = path.join(UPLOADS_DIR, fileName);
 
         fs.writeFileSync(filePath, buffer);
-        return `uploads/${fileName}`;
+        if (fs.existsSync(filePath) && fs.statSync(filePath).size > 20) {
+            return `uploads/${fileName}`;
+        }
+        return '';
     } catch (err) {
         console.error('[UPLOAD] Loi luu file anh base64:', err.message);
         return '';
@@ -206,11 +209,11 @@ const server = http.createServer(async (req, res) => {
             const savedUrls = [];
 
             if (payload.image) {
-                const u = saveBase64ToUploads(payload.image, 'up', 0);
+                const u = saveBase64ToUploads(payload.image, 'photo', 0);
                 savedUrls.push(u);
             } else if (Array.isArray(payload.images)) {
                 payload.images.forEach((img, idx) => {
-                    const u = saveBase64ToUploads(img, 'up', idx);
+                    const u = saveBase64ToUploads(img, 'photo', idx);
                     savedUrls.push(u);
                 });
             }
@@ -453,7 +456,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     fs.stat(filePath, (err, stats) => {
-        if (err || !stats.isFile()) {
+        if (err || !stats.isFile() || stats.size <= 20) {
             // Neu khong tim thay file va khong phai API/uploads, fallback ve index.html (SPA support)
             if (!pathname.startsWith('/api') && !pathname.startsWith('/uploads')) {
                 const indexPath = path.join(ROOT_DIR, 'index.html');
@@ -466,6 +469,24 @@ const server = http.createServer(async (req, res) => {
                         res.end(indexData);
                     }
                 });
+                return;
+            }
+
+            if (pathname.startsWith('/uploads')) {
+                // Neu file anh trong uploads khong ton tai hoac 0 bytes, tra ve anh SVG lang man mac dinh (tranh 100% dau hoi cham va vo anh)
+                const fallbackSvgPath = path.join(UPLOADS_DIR, 'fallback.svg');
+                let svgBuffer = null;
+                if (fs.existsSync(fallbackSvgPath)) {
+                    svgBuffer = fs.readFileSync(fallbackSvgPath);
+                } else {
+                    svgBuffer = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600"><rect width="800" height="600" fill="#fff1f2"/><circle cx="400" cy="245" r="70" fill="#ffffff" opacity="0.9"/><text x="400" y="360" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="bold" fill="#e11d48">Khoảnh khắc kỷ niệm</text><text x="400" y="395" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#be123c">Ngọc Ánh &amp; Tú Uyên</text></svg>', 'utf-8');
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'image/svg+xml; charset=utf-8',
+                    'Content-Length': svgBuffer.length,
+                    'Cache-Control': 'no-cache, no-store'
+                });
+                res.end(svgBuffer);
                 return;
             }
 
