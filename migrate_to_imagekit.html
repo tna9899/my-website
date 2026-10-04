@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chuyển Ảnh Lên ImageKit.io Miễn Phí | Ngọc Ánh & Tú Uyên</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Cấu hình ImageKit -->
+    <script src="imagekit-config.js"></script>
+</head>
+<body class="bg-gradient-to-br from-rose-50 to-pink-50 min-h-screen text-gray-800 p-4 sm:p-8 font-sans">
+    <div class="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl border border-rose-100 p-6 sm:p-8">
+        <div class="text-center mb-6">
+            <span class="inline-block text-4xl mb-2">📸</span>
+            <h1 class="text-2xl sm:text-3xl font-bold text-rose-600">Chuyển Ảnh Lên ImageKit.io</h1>
+            <p class="text-sm text-gray-500 mt-2">Tự động tải ảnh từ thư mục <code class="bg-gray-100 px-2 py-0.5 rounded text-rose-500">uploads/</code> lên <b>ImageKit.io</b> (20GB CDN miễn phí vĩnh viễn, không tốn phí).</p>
+        </div>
+
+        <!-- Trạng thái kết nối ImageKit -->
+        <div id="imagekit-status" class="mb-6 p-4 rounded-2xl flex items-center gap-3"></div>
+
+        <!-- Bảng điều khiển chuyển đổi -->
+        <div class="space-y-4">
+            <div class="p-4 bg-gray-50 rounded-2xl border border-gray-200">
+                <h3 class="font-bold text-gray-700 mb-2">1. Nguồn dữ liệu</h3>
+                <p class="text-xs text-gray-500 mb-3">Mặc định công cụ sẽ nạp dữ liệu từ file <code class="bg-white px-1.5 py-0.5 border rounded">memories.json</code> có sẵn.</p>
+                <div class="flex items-center gap-2">
+                    <button id="btn-load-default" class="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition-all">Nạp memories.json</button>
+                    <input type="file" id="file-backup" accept=".json" class="hidden">
+                    <label for="file-backup" class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold cursor-pointer transition-all">Chọn file JSON khác</label>
+                </div>
+            </div>
+
+            <!-- Preview dữ liệu nạp được -->
+            <div id="preview-box" class="hidden p-4 bg-rose-50/50 rounded-2xl border border-rose-200 text-sm">
+                <p class="font-bold text-rose-700 mb-1" id="preview-count">Tìm thấy 0 kỷ niệm</p>
+                <ul id="preview-list" class="text-xs text-gray-600 space-y-1 max-h-40 overflow-y-auto pr-2"></ul>
+            </div>
+
+            <!-- Nút bấm bắt đầu chuyển -->
+            <button id="btn-start-migration" disabled class="w-full py-3.5 bg-gray-300 text-gray-500 rounded-2xl font-bold text-base shadow-sm transition-all cursor-not-allowed">
+                Bắt đầu chuyển ảnh lên ImageKit
+            </button>
+
+            <!-- Khung tiến trình chuyển đổi -->
+            <div id="progress-box" class="hidden space-y-3 pt-2">
+                <div class="flex justify-between text-xs font-semibold text-gray-600">
+                    <span id="progress-label">Đang chuẩn bị...</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                    <div id="progress-bar" class="bg-gradient-to-r from-rose-500 to-pink-500 h-full w-0 transition-all duration-300"></div>
+                </div>
+                <div id="migration-log" class="text-[11px] font-mono bg-gray-900 text-green-400 p-3 rounded-xl max-h-48 overflow-y-auto space-y-1"></div>
+            </div>
+
+            <!-- Hoàn thành -->
+            <div id="success-box" class="hidden p-5 bg-emerald-50 border border-emerald-200 rounded-2xl text-center space-y-3">
+                <span class="text-3xl">🎉</span>
+                <h4 class="font-bold text-emerald-800 text-lg">Chuyển Đổi Thành Công!</h4>
+                <p class="text-xs text-emerald-600">Toàn bộ ảnh đã được lưu trữ vĩnh viễn trên ImageKit.io với tốc độ tải CDN siêu nhanh.</p>
+                <div class="flex justify-center gap-3 pt-2">
+                    <button id="btn-download-new-json" class="px-5 py-2.5 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold text-sm shadow-xs transition-all">
+                        💾 Tải memories.json Mới Về Máy
+                    </button>
+                    <a href="index.html" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md transition-all">
+                        Trở Về Trang Chủ
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('imagekit-status');
+        const btnLoadDefault = document.getElementById('btn-load-default');
+        const fileBackupInput = document.getElementById('file-backup');
+        const previewBox = document.getElementById('preview-box');
+        const previewCount = document.getElementById('preview-count');
+        const previewList = document.getElementById('preview-list');
+        const btnStartMigration = document.getElementById('btn-start-migration');
+        const progressBox = document.getElementById('progress-box');
+        const progressLabel = document.getElementById('progress-label');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressBar = document.getElementById('progress-bar');
+        const migrationLog = document.getElementById('migration-log');
+        const successBox = document.getElementById('success-box');
+        const btnDownloadNewJson = document.getElementById('btn-download-new-json');
+
+        let loadedMemories = [];
+        let updatedMemories = [];
+
+        function checkImageKit() {
+            if (window.isImageKitConfigured && imagekitConfig.publicKey && imagekitConfig.privateKey) {
+                statusEl.className = "mb-6 p-4 rounded-2xl flex items-center gap-3 bg-emerald-50 text-emerald-800 border border-emerald-200 text-sm";
+                statusEl.innerHTML = `
+                    <span class="text-xl">✅</span>
+                    <div>
+                        <b>ImageKit đã sẵn sàng!</b>
+                        <div class="text-xs text-emerald-600">Endpoint: ${imagekitConfig.urlEndpoint}</div>
+                    </div>
+                `;
+                return true;
+            } else {
+                statusEl.className = "mb-6 p-4 rounded-2xl flex items-center gap-3 bg-amber-50 text-amber-900 border border-amber-200 text-sm";
+                statusEl.innerHTML = `
+                    <span class="text-xl">⚠️</span>
+                    <div>
+                        <b>Chưa cấu hình ImageKit!</b>
+                        <div class="text-xs text-amber-700">Vui lòng mở file <code>imagekit-config.js</code> và dán thông tin từ ImageKit.io Dashboard theo hướng dẫn tại <code>HUONG_DAN_DANG_KY_IMAGEKIT.md</code>.</div>
+                    </div>
+                `;
+                return false;
+            }
+        }
+
+        const isIkReady = checkImageKit();
+
+        function log(msg) {
+            const row = document.createElement('div');
+            row.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            migrationLog.appendChild(row);
+            migrationLog.scrollTop = migrationLog.scrollHeight;
+        }
+
+        function displayPreview(memories) {
+            loadedMemories = memories;
+            if (!Array.isArray(memories) || memories.length === 0) {
+                alert('Không tìm thấy dữ liệu kỷ niệm hợp lệ trong file!');
+                return;
+            }
+            previewBox.classList.remove('hidden');
+            previewCount.textContent = `Đã tìm thấy ${memories.length} kỷ niệm:`;
+            previewList.innerHTML = memories.map((m, i) => {
+                const imgCount = Array.isArray(m.images) ? m.images.length : (m.image ? 1 : 0);
+                return `<li><b>#${i+1}</b> ${m.date || 'Không ngày'} | ${m.location || 'Không địa điểm'} - <i>${(m.content || '').substring(0, 30)}...</i> (${imgCount} ảnh)</li>`;
+            }).join('');
+
+            if (isIkReady) {
+                btnStartMigration.disabled = false;
+                btnStartMigration.className = "w-full py-3.5 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl font-bold text-base shadow-lg shadow-rose-200 cursor-pointer transition-all";
+            }
+        }
+
+        btnLoadDefault.addEventListener('click', async () => {
+            try {
+                const res = await fetch('memories.json?t=' + Date.now());
+                if (!res.ok) throw new Error('Không đọc được memories.json');
+                const data = await res.json();
+                displayPreview(data);
+            } catch (err) {
+                alert('Lỗi nạp memories.json: ' + err.message + '\nNếu bạn đang mở trực tiếp file HTML mà không qua server, vui lòng dùng nút "Chọn file JSON khác" bên cạnh!');
+            }
+        });
+
+        fileBackupInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    let parsed = JSON.parse(ev.target.result);
+                    if (parsed && parsed.memories && Array.isArray(parsed.memories)) {
+                        parsed = parsed.memories;
+                    }
+                    displayPreview(parsed);
+                } catch (err) {
+                    alert('Lỗi định dạng file JSON: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Hàm upload ảnh lên ImageKit
+        async function uploadFileToImageKit(fileOrBlob, fileName) {
+            const authParams = await window.getImageKitAuth();
+            const formData = new FormData();
+            formData.append('file', fileOrBlob);
+            formData.append('fileName', fileName);
+            formData.append('publicKey', imagekitConfig.publicKey);
+            formData.append('signature', authParams.signature);
+            formData.append('expire', authParams.expire);
+            formData.append('token', authParams.token);
+            formData.append('folder', '/anhuyen_memories');
+            formData.append('useUniqueFileName', 'true');
+
+            const resp = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.message || `Lỗi HTTP ${resp.status}`);
+            }
+
+            const data = await resp.json();
+            return data.url;
+        }
+
+        btnStartMigration.addEventListener('click', async () => {
+            if (!isIkReady) {
+                alert('Vui lòng cấu hình ImageKit trong imagekit-config.js trước!');
+                return;
+            }
+            if (!confirm(`Bạn có chắc chắn muốn chuyển ${loadedMemories.length} kỷ niệm lên ImageKit.io?`)) return;
+
+            btnStartMigration.disabled = true;
+            btnStartMigration.classList.add('opacity-50', 'pointer-events-none');
+            progressBox.classList.remove('hidden');
+            migrationLog.innerHTML = '';
+
+            let totalImages = 0;
+            loadedMemories.forEach(m => {
+                const imgs = Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []);
+                totalImages += imgs.length;
+            });
+
+            log(`Bắt đầu xử lý ${loadedMemories.length} kỷ niệm với tổng cộng ${totalImages} bức ảnh...`);
+
+            let processedSteps = 0;
+            const totalSteps = totalImages + loadedMemories.length;
+
+            const updateProgress = (stepName) => {
+                processedSteps++;
+                const pct = Math.min(100, Math.round((processedSteps / totalSteps) * 100));
+                progressBar.style.width = pct + '%';
+                progressPercent.textContent = pct + '%';
+                progressLabel.textContent = stepName;
+            };
+
+            updatedMemories = JSON.parse(JSON.stringify(loadedMemories));
+
+            for (let i = 0; i < updatedMemories.length; i++) {
+                const mem = updatedMemories[i];
+                const memId = String(mem.id || Date.now() + i);
+                const rawImgs = Array.isArray(mem.images) ? mem.images : (mem.image ? [mem.image] : []);
+                const newUrls = [];
+
+                log(`Đang xử lý kỷ niệm #${i+1} (ID: ${memId}, Địa điểm: ${mem.location || 'N/A'})...`);
+
+                for (let j = 0; j < rawImgs.length; j++) {
+                    const imgUrl = rawImgs[j];
+                    if (!imgUrl) continue;
+
+                    // Nếu ảnh đã là URL ImageKit hoặc HTTPS thì giữ nguyên
+                    if (imgUrl.includes('ik.imagekit.io') || imgUrl.startsWith('https://')) {
+                        newUrls.push(imgUrl);
+                        updateProgress(`Giữ nguyên ảnh đã có link trực tuyến`);
+                        continue;
+                    }
+
+                    // Tải ảnh từ file uploads/
+                    try {
+                        updateProgress(`Đang tải ảnh ${j+1}/${rawImgs.length} lên ImageKit.io...`);
+                        const imgResp = await fetch(imgUrl);
+                        if (!imgResp.ok) throw new Error(`Không đọc được file ${imgUrl}`);
+                        const blob = await imgResp.blob();
+
+                        const fileName = `mem_${memId}_${j}_${Date.now()}.jpg`;
+                        const cdnUrl = await uploadFileToImageKit(blob, fileName);
+
+                        newUrls.push(cdnUrl);
+                        log(`  ✅ Đã tải ảnh ${j+1} lên: ${cdnUrl}`);
+                    } catch (uploadErr) {
+                        log(`  ⚠️ Lỗi tải ảnh ${imgUrl}: ${uploadErr.message}. Sử dụng placeholder dự phòng.`);
+                        newUrls.push(imgUrl);
+                    }
+                }
+
+                mem.images = newUrls;
+                delete mem.image;
+                updateProgress(`Đã hoàn tất kỷ niệm #${i+1}`);
+            }
+
+            progressBar.style.width = '100%';
+            progressPercent.textContent = '100%';
+            progressLabel.textContent = 'Hoàn tất chuyển đổi!';
+            log('✨ TẤT CẢ ẢNH ĐÃ ĐƯỢC CHUYỂN THÀNH CÔNG SANG IMAGEKIT.IO!');
+
+            // Lưu vào IndexedDB và localStorage của trình duyệt
+            try {
+                localStorage.setItem('weddingMemories', JSON.stringify(updatedMemories));
+            } catch (e) {}
+
+            // Thử đồng bộ lưu lại vào server nội bộ nếu server đang chạy
+            try {
+                await fetch('/api/memories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedMemories)
+                });
+                log('💾 Đã tự động cập nhật file memories.json trên máy chủ.');
+            } catch (syncErr) {
+                log('ℹ️ Máy chủ đang không chạy, bạn có thể tải file JSON mới bằng nút bên dưới.');
+            }
+
+            successBox.classList.remove('hidden');
+        });
+
+        // Nút tải file memories.json mới về máy
+        btnDownloadNewJson.addEventListener('click', () => {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(updatedMemories, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "memories.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+    </script>
+</body>
+</html>

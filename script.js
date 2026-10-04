@@ -647,6 +647,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (e) {}
             }
 
+            // Fallback tải file tĩnh memories.json (Dành cho GitHub Pages, Vercel, Netlify không có backend Node)
+            if (!updated) {
+                try {
+                    const resp = await fetch(`memories.json?_t=${Date.now()}`);
+                    if (resp.ok) {
+                        const staticMemories = await resp.json();
+                        if (Array.isArray(staticMemories) && staticMemories.length > 0) {
+                            const merged = this.mergeWithLocal(staticMemories);
+                            this._cache = merged;
+                            try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                            try { await IDBStorage.saveAll(merged); } catch (e) {}
+
+                            if (typeof renderMemories === 'function') renderMemories();
+                            if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                            updated = true;
+                            updateSyncStatusUI('synced');
+                        }
+                    }
+                } catch (e) {}
+            }
+
             this._isFetching = false;
             if (!updated && !this._isPushing) {
                 updateSyncStatusUI('error');
@@ -754,6 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this._version = localStorage.getItem(this.versionKey) || 0;
             } catch (e) {}
 
+            // Đồng bộ dữ liệu mới nhất từ máy chủ
             await this.fetchLatestFromServer();
 
             if (!this._pollTimer) {
@@ -777,6 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 Logger.log('UNAUTHORIZED_ADD', 'Từ chối thêm kỷ niệm do chưa đăng nhập');
                 return false;
             }
+
             const list = this.getAll();
             list.unshift(item);
             const success = await this.saveAll(list);
@@ -921,24 +944,105 @@ document.addEventListener('DOMContentLoaded', () => {
     // Bí danh tương thích ngược an toàn
     const compressImage = (file) => processImagePreservingResolution(file);
 
-    // Hàm tải ảnh trực tiếp lên máy chủ nội bộ vào thư mục uploads/ (giúp ứng dụng siêu nhẹ)
-    const uploadImagesToServer = async (imagesArray) => {
+    // Hàm tải ảnh trực tiếp lên ImageKit.io (20GB CDN miễn phí vĩnh viễn) hoặc máy chủ nội bộ
+    const uploadImagesToServer = async (imagesArray, onProgressCallback) => {
         if (!imagesArray || !imagesArray.length) return [];
         const results = [];
+
+        // 1. NẾU ĐÃ KẾT NỐI IMAGEKIT.IO
+        if (window.isImageKitConfigured && imagekitConfig.publicKey && imagekitConfig.privateKey) {
+            for (let i = 0; i < imagesArray.length; i++) {
+                const img = imagesArray[i];
+                if (!img || typeof img !== 'string') continue;
+
+                // Nếu ảnh đã là URL trực tuyến (ImageKit CDN hoặc HTTPS) -> Giữ nguyên
+                if (img.startsWith('http://') || img.startsWith('https://')) {
+                    results.push(img.trim());
+                    if (typeof onProgressCallback === 'function') {
+                        onProgressCallback(i + 1, imagesArray.length, 100);
+                    }
+                    continue;
+                }
+
+                // Nếu là chuỗi Base64 Data URL
+                if (img.startsWith('data:image/')) {
+                    if (img.length < 100) continue; // Bỏ qua ảnh rác
+
+                    try {
+                        let ext = 'jpg';
+                        const commaIdx = img.indexOf(',');
+                        if (commaIdx !== -1) {
+                            const header = img.substring(0, commaIdx);
+                            const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
+                            if (match) {
+                                let mExt = match[1].toLowerCase();
+                                if (mExt === 'jpeg') ext = 'jpg';
+                                else if (/^(jpg|png|webp|gif|svg|avif|heic|heif)$/.test(mExt)) ext = mExt;
+                            }
+                        }
+
+                        const fileName = `img_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+                        const auth = await window.getImageKitAuth();
+
+                        const formData = new FormData();
+                        formData.append('file', img); // ImageKit hỗ trợ chuỗi Data URL trực tiếp
+                        formData.append('fileName', fileName);
+                        formData.append('publicKey', imagekitConfig.publicKey);
+                        formData.append('signature', auth.signature);
+                        formData.append('expire', auth.expire);
+                        formData.append('token', auth.token);
+                        formData.append('folder', '/anhuyen_memories');
+                        formData.append('useUniqueFileName', 'true');
+
+                        if (typeof onProgressCallback === 'function') {
+                            onProgressCallback(i + 1, imagesArray.length, 30);
+                        }
+
+                        const resp = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        if (!resp.ok) {
+                            const errData = await resp.json().catch(() => ({}));
+                            throw new Error(errData.message || `Lỗi HTTP ${resp.status}`);
+                        }
+
+                        const data = await resp.json();
+                        const cdnUrl = data.url;
+                        results.push(cdnUrl);
+
+                        if (typeof onProgressCallback === 'function') {
+                            onProgressCallback(i + 1, imagesArray.length, 100);
+                        }
+
+                        Logger.log('IMAGEKIT_UPLOAD_SUCCESS', `Đã lưu ảnh vĩnh viễn trên ImageKit: ${fileName}`);
+                    } catch (ikErr) {
+                        console.error('[ImageKit] Lỗi upload ảnh:', ikErr);
+                        Logger.log('IMAGEKIT_UPLOAD_ERROR', `Lỗi tải ảnh lên ImageKit: ${ikErr.message}`);
+                        // Dự phòng: giữ lại base64 nếu tải thất bại
+                        if (img.length > 200) results.push(img);
+                    }
+                } else if (img.trim().length > 5) {
+                    results.push(img.trim());
+                }
+            }
+            return results;
+        }
+
+        // 2. FALLBACK: TẢI LÊN MÁY CHỦ CỤC BỘ /api/upload (NẾU CHƯA CÓ IMAGEKIT)
         const endpoints = MemoryStore.getEndpoints('/api/upload');
         for (let i = 0; i < imagesArray.length; i++) {
             const img = imagesArray[i];
             if (!img || typeof img !== 'string') continue;
 
             if (img.startsWith('data:image/')) {
-                // Tuyệt đối không upload dữ liệu rỗng (< 100 ký tự) để tránh sinh file 0 byte gây lỗi dấu hỏi chấm
                 if (img.length < 100) continue;
 
                 let uploadedUrl = null;
                 for (const ep of endpoints) {
                     try {
                         const controller = new AbortController();
-                        // Tăng timeout lên 60 giây để ảnh chất lượng cao gốc upload trơn tru
                         const toId = setTimeout(() => controller.abort(), 60000);
                         const resp = await fetch(ep, {
                             method: 'POST',
@@ -1356,11 +1460,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // =========================================================================
-    // 9. XỬ LÝ MODAL CÀI ĐẶT & THAY ĐỔI MÀU NỀN & LOGS
-    // =========================================================================
+    const updateImageKitSettingsUI = () => {
+        const badge = document.getElementById('settings-imagekit-badge');
+        const desc = document.getElementById('settings-imagekit-desc');
+        const box = document.getElementById('settings-imagekit-box');
+        if (!badge || !desc) return;
+
+        if (window.isImageKitConfigured && typeof imagekitConfig !== 'undefined' && imagekitConfig.publicKey && imagekitConfig.privateKey) {
+            badge.className = "px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 text-[11px]";
+            badge.textContent = "✅ Đã kết nối ImageKit";
+            if (box) box.className = "p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2.5";
+            desc.innerHTML = `Đang kết nối ImageKit.io (<b>${imagekitConfig.urlEndpoint}</b>). Ảnh được tải lên CDN toàn cầu miễn phí 20GB/tháng và không bao giờ bị mất!`;
+        } else {
+            badge.className = "px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 text-[11px]";
+            badge.textContent = "⚠️ Chưa cấu hình";
+            if (box) box.className = "p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs space-y-2.5";
+            desc.innerHTML = `Đang chạy chế độ Local Server. Để kích hoạt lưu ảnh vĩnh viễn trên ImageKit miễn phí, hãy điền thông tin vào file <code>imagekit-config.js</code>.`;
+        }
+    };
+
     const openSettingsModal = () => {
         Logger.log('OPEN_MODAL', 'Mở modal Cài đặt hệ thống');
+        updateImageKitSettingsUI();
         modalSettings.classList.remove('hidden');
     };
 
@@ -1537,8 +1658,13 @@ document.addEventListener('DOMContentLoaded', () => {
             <span>Đang lưu và đồng bộ lên máy tính & điện thoại...</span>
         `;
 
-        // Tải ảnh trực tiếp lên máy chủ để tối ưu bộ nhớ
-        const finalImages = await uploadImagesToServer(selectedImages);
+        // Tải ảnh trực tiếp lên ImageKit.io hoặc máy chủ nội bộ kèm hiển thị tiến trình
+        const finalImages = await uploadImagesToServer(selectedImages, (current, total, pct) => {
+            saveMemoryBtn.innerHTML = `
+                <svg class="animate-spin h-5 w-5 mr-2 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>Đang lưu ảnh ${current}/${total} (${pct}%)...</span>
+            `;
+        });
 
         const newMemory = {
             id: Date.now().toString(),
@@ -2237,8 +2363,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (newCompressedImages.length) {
-                        btnText.textContent = 'Đang đồng bộ...';
-                        const finalUploadedUrls = await uploadImagesToServer(newCompressedImages);
+                        btnText.textContent = 'Đang tải ảnh...';
+                        const finalUploadedUrls = await uploadImagesToServer(newCompressedImages, (cur, tot, pct) => {
+                            btnText.textContent = `Đang tải ${cur}/${tot} (${pct}%)...`;
+                        });
                         const memories = MemoryStore.getAll();
                         const targetItem = memories.find(m => String(m.id) === String(memoryId));
                         if (targetItem) {
@@ -4107,8 +4235,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             try {
-                // Tải bất kỳ ảnh base64 mới nào lên server thành file uploads/
-                const finalImages = await uploadImagesToServer(this.workingImages);
+                // Tải bất kỳ ảnh base64 mới nào lên ImageKit.io hoặc server
+                const finalImages = await uploadImagesToServer(this.workingImages, (cur, tot, pct) => {
+                    if (btnSave) {
+                        btnSave.innerHTML = `
+                            <svg class="animate-spin h-4 w-4 text-white inline mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <span>Lưu ảnh ${cur}/${tot} (${pct}%)...</span>
+                        `;
+                    }
+                });
 
                 const memories = MemoryStore.getAll();
                 const target = memories.find(m => String(m.id) === String(this.currentMemoryId));
