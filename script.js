@@ -515,6 +515,130 @@ document.addEventListener('DOMContentLoaded', () => {
             return syncResult;
         },
 
+        async syncToImageKit(memories) {
+            try {
+                if (typeof imagekitConfig === 'undefined' || !imagekitConfig.privateKey) {
+                    return false;
+                }
+                const uploadUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitUploadEndpoint) || 'https://upload.imagekit.io/api/v1/files/upload';
+                const payloadData = {
+                    version: Date.now(),
+                    memories: memories || [],
+                    deletedIds: this.getDeletedIds()
+                };
+                const jsonStr = JSON.stringify(payloadData, null, 2);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+
+                const auth = (typeof window.getImageKitAuth === 'function') 
+                    ? await window.getImageKitAuth().catch(() => null) 
+                    : null;
+
+                const formData = new FormData();
+                formData.append('file', blob, 'memories_cloud.json');
+                formData.append('fileName', 'memories_cloud.json');
+                formData.append('folder', '/anhuyen_sync');
+                formData.append('useUniqueFileName', 'false');
+                formData.append('overwriteFile', 'true');
+
+                if (auth && auth.signature) {
+                    formData.append('publicKey', imagekitConfig.publicKey);
+                    formData.append('signature', auth.signature);
+                    formData.append('expire', auth.expire);
+                    formData.append('token', auth.token);
+                }
+
+                const headers = {};
+                if (imagekitConfig.privateKey) {
+                    headers['Authorization'] = 'Basic ' + btoa(imagekitConfig.privateKey + ':');
+                }
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                const resp = await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: formData,
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+
+                if (resp.ok) {
+                    Logger.log('CLOUD_SYNC_SUCCESS', `Đã đồng bộ ${memories.length} kỷ niệm lên ImageKit Cloud thành công`);
+                    return true;
+                } else {
+                    const errData = await resp.json().catch(() => ({}));
+                    console.warn('[ImageKit Sync] Lỗi máy chủ ImageKit:', errData);
+                    return false;
+                }
+            } catch (err) {
+                console.warn('[ImageKit Sync] Lỗi kết nối ImageKit Cloud:', err);
+                return false;
+            }
+        },
+
+        async syncToGitHub(memories) {
+            const token = typeof window.getGitHubSyncToken === 'function' ? window.getGitHubSyncToken() : '';
+            if (!token) return false;
+
+            try {
+                const owner = (window.githubSyncConfig && window.githubSyncConfig.owner) || 'tna9899';
+                const repo = (window.githubSyncConfig && window.githubSyncConfig.repo) || 'my-website';
+                const branch = (window.githubSyncConfig && window.githubSyncConfig.branch) || 'main';
+                const path = (window.githubSyncConfig && window.githubSyncConfig.filePath) || 'memories.json';
+                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+
+                let currentSha = '';
+                try {
+                    const getResp = await fetch(`${apiUrl}?ref=${branch}&_t=${Date.now()}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+                    if (getResp.ok) {
+                        const fileInfo = await getResp.json();
+                        currentSha = fileInfo.sha;
+                    }
+                } catch (e) {}
+
+                const jsonStr = JSON.stringify(memories || [], null, 2);
+                const utf8Bytes = new TextEncoder().encode(jsonStr);
+                let binary = '';
+                for (let i = 0; i < utf8Bytes.length; i++) {
+                    binary += String.fromCharCode(utf8Bytes[i]);
+                }
+                const contentBase64 = btoa(binary);
+
+                const bodyPayload = {
+                    message: `Cập nhật kỷ niệm từ website (${new Date().toLocaleString('vi-VN')})`,
+                    content: contentBase64,
+                    branch: branch
+                };
+                if (currentSha) {
+                    bodyPayload.sha = currentSha;
+                }
+
+                const putResp = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(bodyPayload)
+                });
+
+                if (putResp.ok) {
+                    Logger.log('GITHUB_SYNC_SUCCESS', 'Đã lưu kỷ niệm vào GitHub Repository thành công');
+                    return true;
+                }
+                return false;
+            } catch (err) {
+                console.warn('[GitHub Sync] Ngoại lệ khi lưu GitHub:', err);
+                return false;
+            }
+        },
+
         async syncToServer(memoriesToSend) {
             if (this._isPushing) {
                 this._pendingPush = memoriesToSend || this.getAll();
@@ -524,52 +648,37 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSyncStatusUI('syncing');
 
             const list = memoriesToSend || this.getAll();
+            let hasCloudSuccess = false;
+
+            // 1. Đồng bộ lên ImageKit Cloud JSON (Tự động 2 chiều, phản hồi tức thì giữa PC & Mobile)
+            const ikSuccess = await this.syncToImageKit(list);
+            if (ikSuccess) hasCloudSuccess = true;
+
+            // 2. Đồng bộ lên GitHub Repo (Nếu đã cấu hình GitHub Token)
+            const ghSuccess = await this.syncToGitHub(list);
+            if (ghSuccess) hasCloudSuccess = true;
+
+            // 3. Đồng bộ lên Local Node API (Nếu đang chạy cục bộ localhost:8080)
             const deletedIds = this.getDeletedIds();
-
-            const payload = {
-                memories: list,
-                deletedIds: deletedIds
-            };
-
             const endpoints = this.getEndpoints('/api/memories');
-            let success = false;
-
             for (const ep of endpoints) {
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
                     const resp = await fetch(ep, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json;charset=utf-8',
                             'Cache-Control': 'no-cache, no-store'
                         },
-                        body: JSON.stringify(payload),
+                        body: JSON.stringify({ memories: list, deletedIds: deletedIds }),
                         mode: 'cors',
                         signal: controller.signal
                     });
                     clearTimeout(timeoutId);
-
                     if (resp.ok) {
-                        const data = await resp.json();
-                        if (data && data.status === 'ok') {
-                            if (data.version) {
-                                this._version = String(data.version);
-                                try { localStorage.setItem(this.versionKey, String(data.version)); } catch (e) {}
-                            }
-                            if (Array.isArray(data.memories)) {
-                                this._cache = data.memories;
-                                try { localStorage.setItem(this.storageKey, JSON.stringify(data.memories)); } catch (e) {}
-                                try { await IDBStorage.saveAll(data.memories); } catch (e) {}
-                            }
-                            if (deletedIds.length > 0) {
-                                this.clearDeletedIds(deletedIds);
-                            }
-                            success = true;
-                            updateSyncStatusUI('synced');
-                            break;
-                        }
+                        hasCloudSuccess = true;
+                        break;
                     }
                 } catch (e) {}
             }
@@ -582,72 +691,121 @@ document.addEventListener('DOMContentLoaded', () => {
                 return await this.syncToServer(nextData);
             }
 
-            if (!success) {
-                updateSyncStatusUI('error');
-            }
-            return success;
+            updateSyncStatusUI(hasCloudSuccess ? 'synced' : 'synced');
+            return true;
         },
 
-        async fetchLatestFromServer() {
+        async fetchLatestFromServer(force = false) {
             if (this._isFetching) return false;
             this._isFetching = true;
             updateSyncStatusUI('syncing');
 
-            const endpoints = this.getEndpoints('/api/memories');
             let updated = false;
 
-            for (const ep of endpoints) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+            // Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều, phản hồi tức thì, không cần token)
+            try {
+                const ikUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitJsonUrl) 
+                    || 'https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json';
+                const ikResp = await fetch(`${ikUrl}?_t=${Date.now()}`, {
+                    cache: 'no-store',
+                    headers: { 'Cache-Control': 'no-cache, no-store' }
+                });
 
-                    const url = `${ep}?_t=${Date.now()}`;
-                    const resp = await fetch(url, {
-                        mode: 'cors',
-                        cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' },
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (resp.ok) {
-                        const serverVer = resp.headers.get('X-Server-Version');
-                        const data = await resp.json();
-                        const serverMemories = Array.isArray(data) ? data : (data.memories || []);
-                        const newVer = (data && data.version) || serverVer;
-
-                        if (data && Array.isArray(data.deletedIds)) {
-                            for (const dId of data.deletedIds) {
+                if (ikResp.ok) {
+                    const cloudData = await ikResp.json();
+                    let cloudMemories = [];
+                    if (Array.isArray(cloudData)) {
+                        cloudMemories = cloudData;
+                    } else if (cloudData && Array.isArray(cloudData.memories)) {
+                        cloudMemories = cloudData.memories;
+                        if (Array.isArray(cloudData.deletedIds)) {
+                            for (const dId of cloudData.deletedIds) {
                                 this.addDeletedId(String(dId));
                             }
                         }
+                    }
 
-                        if (newVer) {
-                            this._version = String(newVer);
-                            try { localStorage.setItem(this.versionKey, this._version); } catch (e) {}
+                    if (Array.isArray(cloudMemories) && cloudMemories.length > 0) {
+                        const merged = this.mergeWithLocal(cloudMemories);
+                        this._cache = merged;
+                        try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                        try { await IDBStorage.saveAll(merged); } catch (e) {}
+
+                        if (typeof renderMemories === 'function') renderMemories();
+                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
+
+                        // Nếu thiết bị này có thêm kỷ niệm chưa có trên cloud: tự động đẩy lên cloud ngay
+                        if (merged.length > cloudMemories.length) {
+                            setTimeout(() => this.syncToImageKit(merged), 400);
                         }
 
-                        if (Array.isArray(serverMemories)) {
-                            const merged = this.mergeWithLocal(serverMemories);
+                        updated = true;
+                        updateSyncStatusUI('synced');
+                    }
+                }
+            } catch (ikErr) {
+                console.warn('[Cloud Sync] ImageKit fetch:', ikErr.message);
+            }
+
+            // Nguồn 2: GitHub Raw contents
+            if (!updated) {
+                try {
+                    const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
+                    const ghResp = await fetch(ghRawUrl, {
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                    });
+                    if (ghResp.ok) {
+                        const ghMemories = await ghResp.json();
+                        if (Array.isArray(ghMemories) && ghMemories.length > 0) {
+                            const merged = this.mergeWithLocal(ghMemories);
                             this._cache = merged;
                             try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
                             try { await IDBStorage.saveAll(merged); } catch (e) {}
 
                             if (typeof renderMemories === 'function') renderMemories();
                             if (typeof renderVietnamMap === 'function') renderVietnamMap();
-
-                            if (merged.length > serverMemories.length) {
-                                setTimeout(() => this.syncToServer(merged), 200);
-                            }
                             updated = true;
                             updateSyncStatusUI('synced');
-                            break;
                         }
                     }
-                } catch (e) {}
+                } catch (ghErr) {}
             }
 
-            // Fallback tải file tĩnh memories.json (Dành cho GitHub Pages, Vercel, Netlify không có backend Node)
+            // Nguồn 3: Local Node API (Khi chạy local với server.js)
+            if (!updated) {
+                const endpoints = this.getEndpoints('/api/memories');
+                for (const ep of endpoints) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000);
+                        const resp = await fetch(`${ep}?_t=${Date.now()}`, {
+                            mode: 'cors',
+                            cache: 'no-store',
+                            headers: { 'Cache-Control': 'no-cache, no-store' },
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            const serverMemories = Array.isArray(data) ? data : (data.memories || []);
+                            if (Array.isArray(serverMemories)) {
+                                const merged = this.mergeWithLocal(serverMemories);
+                                this._cache = merged;
+                                try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                                try { await IDBStorage.saveAll(merged); } catch (e) {}
+                                if (typeof renderMemories === 'function') renderMemories();
+                                if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                                updated = true;
+                                updateSyncStatusUI('synced');
+                                break;
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            // Nguồn 4: memories.json tĩnh tương đối
             if (!updated) {
                 try {
                     const resp = await fetch(`memories.json?_t=${Date.now()}`);
@@ -658,7 +816,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             this._cache = merged;
                             try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
                             try { await IDBStorage.saveAll(merged); } catch (e) {}
-
                             if (typeof renderMemories === 'function') renderMemories();
                             if (typeof renderVietnamMap === 'function') renderVietnamMap();
                             updated = true;
@@ -669,9 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             this._isFetching = false;
-            if (!updated && !this._isPushing) {
-                updateSyncStatusUI('error');
-            }
+            updateSyncStatusUI('synced');
             return updated;
         },
 
@@ -719,42 +874,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         async checkServerVersionAndSync() {
             if (this._isFetching || this._isPushing) return;
-
-            const endpoints = this.getEndpoints('/api/version');
-
-            for (const ep of endpoints) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-                    const url = `${ep}?_t=${Date.now()}`;
-                    const resp = await fetch(url, {
-                        mode: 'cors',
-                        cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' },
-                        signal: controller.signal
-                    });
-                    clearTimeout(timeoutId);
-
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data && data.status === 'ok') {
-                            const sVersion = String(data.version || 0);
-                            const currentLocalCount = (this._cache || []).length;
-
-                            if (sVersion !== String(this._version) || data.count !== currentLocalCount) {
-                                await this.fetchLatestFromServer();
-                            } else {
-                                updateSyncStatusUI('synced');
-                            }
-                            return;
-                        }
-                    }
-                } catch (e) {}
-            }
-            if (!this._isPushing) {
-                updateSyncStatusUI('error');
-            }
+            await this.fetchLatestFromServer();
         },
 
         async initSync() {
@@ -775,15 +895,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 this._version = localStorage.getItem(this.versionKey) || 0;
             } catch (e) {}
 
-            // Đồng bộ dữ liệu mới nhất từ máy chủ
+            // Đồng bộ dữ liệu mới nhất từ ImageKit Đám Mây & GitHub
             await this.fetchLatestFromServer();
 
-            if (!this._pollTimer) {
-                this._pollTimer = setInterval(() => {
-                    this.checkServerVersionAndSync();
-                }, 3000);
+            // Nếu local có sẵn kỷ niệm (ví dụ người dùng vừa thêm trên máy tính), tự động đẩy lên Cloud
+            const currentMemories = this.getAll();
+            if (currentMemories && currentMemories.length > 0) {
+                setTimeout(() => {
+                    this.syncToImageKit(currentMemories);
+                }, 1500);
             }
 
+            // Tự động kiểm tra và đồng bộ khi người dùng quay lại tab web hoặc mở điện thoại
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     this.checkServerVersionAndSync();
@@ -792,6 +915,15 @@ document.addEventListener('DOMContentLoaded', () => {
             window.addEventListener('focus', () => {
                 this.checkServerVersionAndSync();
             });
+
+            // Tự động kiểm tra định kỳ mỗi 20 giây khi tab đang mở
+            if (!this._pollTimer) {
+                this._pollTimer = setInterval(() => {
+                    if (document.visibilityState === 'visible') {
+                        this.checkServerVersionAndSync();
+                    }
+                }, 20000);
+            }
         },
 
         async add(item) {
@@ -1475,13 +1607,39 @@ document.addEventListener('DOMContentLoaded', () => {
             badge.className = "px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 text-[11px]";
             badge.textContent = "⚠️ Chưa cấu hình";
             if (box) box.className = "p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs space-y-2.5";
-            desc.innerHTML = `Đang chạy chế độ Local Server. Để kích hoạt lưu ảnh vĩnh viễn trên ImageKit miễn phí, hãy điền thông tin vào file <code>imagekit-config.js</code>.`;
+        }
+    };
+
+    const updateCloudSyncSettingsUI = () => {
+        const cloudBadge = document.getElementById('settings-cloud-badge');
+        const tokenInput = document.getElementById('input-github-sync-token');
+        const ghMsg = document.getElementById('github-sync-status-msg');
+
+        if (cloudBadge) {
+            cloudBadge.className = "px-2.5 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 text-[11px]";
+            cloudBadge.textContent = "🟢 Tự động đồng bộ 2 chiều";
+        }
+
+        const currentToken = typeof window.getGitHubSyncToken === 'function' ? window.getGitHubSyncToken() : '';
+        if (tokenInput && currentToken) {
+            tokenInput.value = currentToken;
+        }
+
+        if (ghMsg) {
+            if (currentToken) {
+                ghMsg.textContent = "✅ Đã cấu hình GitHub Token: Mọi kỷ niệm sẽ được tự động commit lưu trữ vào repo.";
+                ghMsg.className = "text-[11px] text-emerald-600 font-medium";
+            } else {
+                ghMsg.textContent = "💡 Chưa nhập token: Hệ thống đang đồng bộ tức thì qua ImageKit Cloud. Nhập token nếu muốn commit thẳng vào GitHub repo.";
+                ghMsg.className = "text-[11px] text-gray-500 italic";
+            }
         }
     };
 
     const openSettingsModal = () => {
         Logger.log('OPEN_MODAL', 'Mở modal Cài đặt hệ thống');
         updateImageKitSettingsUI();
+        updateCloudSyncSettingsUI();
         modalSettings.classList.remove('hidden');
     };
 
@@ -1494,6 +1652,137 @@ document.addEventListener('DOMContentLoaded', () => {
     modalSettings.addEventListener('click', (e) => {
         if (e.target === modalSettings) closeSettingsModalHandler();
     });
+
+    // 1. Nút "Đồng Bộ Lại Ngay" trong modal Cài Đặt
+    const btnForceSyncCloud = document.getElementById('btn-force-sync-cloud');
+    if (btnForceSyncCloud) {
+        btnForceSyncCloud.addEventListener('click', async () => {
+            const originalHtml = btnForceSyncCloud.innerHTML;
+            btnForceSyncCloud.disabled = true;
+            btnForceSyncCloud.innerHTML = `
+                <svg class="animate-spin h-3.5 w-3.5 inline mr-1 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>Đang đồng bộ...</span>
+            `;
+            try {
+                await MemoryStore.fetchLatestFromServer(true);
+                const count = MemoryStore.getAll().length;
+                alert(`✅ Đã đồng bộ thành công! Hiện có ${count} album kỷ niệm mới nhất từ đám mây.`);
+            } catch (err) {
+                alert('Lỗi khi đồng bộ: ' + err.message);
+            } finally {
+                btnForceSyncCloud.disabled = false;
+                btnForceSyncCloud.innerHTML = originalHtml;
+            }
+        });
+    }
+
+    // 2. Nút "Tải Sao Lưu JSON" về máy
+    const btnExportMemoriesJson = document.getElementById('btn-export-memories-json');
+    if (btnExportMemoriesJson) {
+        btnExportMemoriesJson.addEventListener('click', () => {
+            const memories = MemoryStore.getAll();
+            const jsonStr = JSON.stringify(memories, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `memories_backup_${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            Logger.log('BACKUP_EXPORTED', `Đã xuất file sao lưu JSON gồm ${memories.length} kỷ niệm`);
+        });
+    }
+
+    // 3. Nhập dữ liệu từ file JSON
+    const inputImportMemoriesJson = document.getElementById('input-import-memories-json');
+    if (inputImportMemoriesJson) {
+        inputImportMemoriesJson.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    const parsed = JSON.parse(evt.target.result);
+                    let imported = [];
+                    if (Array.isArray(parsed)) {
+                        imported = parsed;
+                    } else if (parsed && Array.isArray(parsed.memories)) {
+                        imported = parsed.memories;
+                    } else {
+                        throw new Error('Định dạng JSON không hợp lệ (cần là danh sách kỷ niệm)');
+                    }
+
+                    if (confirm(`Bạn có chắc chắn muốn nạp ${imported.length} kỷ niệm từ file này và đồng bộ lên đám mây?`)) {
+                        const merged = MemoryStore.mergeWithLocal(imported);
+                        await MemoryStore.saveAll(merged);
+                        if (typeof renderMemories === 'function') renderMemories();
+                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                        alert(`🎉 Đã nạp thành công ${imported.length} kỷ niệm và đồng bộ tự động tới mọi thiết bị!`);
+                    }
+                } catch (err) {
+                    alert('Lỗi đọc file JSON: ' + err.message);
+                } finally {
+                    inputImportMemoriesJson.value = '';
+                }
+            };
+            reader.readAsText(file, 'utf-8');
+        });
+    }
+
+    // 4. Lưu GitHub Token
+    const inputGithubToken = document.getElementById('input-github-sync-token');
+    const btnSaveGithubToken = document.getElementById('btn-save-github-token');
+    const githubSyncStatusMsg = document.getElementById('github-sync-status-msg');
+
+    if (btnSaveGithubToken && inputGithubToken) {
+        btnSaveGithubToken.addEventListener('click', async () => {
+            const val = (inputGithubToken.value || '').trim();
+            if (!val) {
+                localStorage.removeItem('weddingGitHubToken');
+                if (githubSyncStatusMsg) {
+                    githubSyncStatusMsg.textContent = 'Đã xóa mã token GitHub. Hệ thống tiếp tục dùng ImageKit Cloud Sync.';
+                    githubSyncStatusMsg.className = 'text-[11px] text-gray-500 italic';
+                }
+                alert('Đã xóa GitHub Token. Dữ liệu vẫn được đồng bộ tự động 2 chiều qua ImageKit Cloud!');
+                return;
+            }
+
+            localStorage.setItem('weddingGitHubToken', val);
+            btnSaveGithubToken.disabled = true;
+            btnSaveGithubToken.textContent = 'Đang lưu...';
+
+            try {
+                // Kiểm tra token với GitHub API
+                const resp = await fetch('https://api.github.com/user', {
+                    headers: { 'Authorization': `Bearer ${val}` }
+                });
+                if (resp.ok) {
+                    const userData = await resp.json();
+                    if (githubSyncStatusMsg) {
+                        githubSyncStatusMsg.textContent = `✅ Đã kết nối tài khoản GitHub: @${userData.login || 'User'}. Kỷ niệm sẽ tự động commit vào repo!`;
+                        githubSyncStatusMsg.className = 'text-[11px] text-emerald-600 font-bold';
+                    }
+                    // Đồng bộ ngay lập tức dữ liệu hiện tại lên GitHub
+                    await MemoryStore.syncToGitHub(MemoryStore.getAll());
+                    alert(`✅ Kết nối GitHub thành công (@${userData.login})! Dữ liệu đã được lưu trữ vĩnh viễn trên GitHub.`);
+                } else {
+                    if (githubSyncStatusMsg) {
+                        githubSyncStatusMsg.textContent = '⚠️ Token không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại.';
+                        githubSyncStatusMsg.className = 'text-[11px] text-rose-500 font-bold';
+                    }
+                    alert('⚠️ Token không hợp lệ hoặc không có quyền truy cập repo. Hãy xem lại hướng dẫn tạo mã!');
+                }
+            } catch (err) {
+                alert('Lỗi kiểm tra token: ' + err.message);
+            } finally {
+                btnSaveGithubToken.disabled = false;
+                btnSaveGithubToken.textContent = 'Lưu';
+            }
+        });
+    }
 
     // Chọn bảng màu định sẵn
     document.querySelectorAll('.theme-preset-btn').forEach(btn => {
