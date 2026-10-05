@@ -530,36 +530,37 @@ document.addEventListener('DOMContentLoaded', () => {
                     deletedIds: this.getDeletedIds()
                 };
                 const jsonStr = JSON.stringify(payloadData, null, 2);
-                const blob = new Blob([jsonStr], { type: 'application/json' });
+                let filePayload;
+                try {
+                    filePayload = new File([jsonStr], 'memories_cloud.json', { type: 'application/json' });
+                } catch (e) {
+                    filePayload = new Blob([jsonStr], { type: 'application/json' });
+                }
 
                 const auth = (typeof window.getImageKitAuth === 'function') 
                     ? await window.getImageKitAuth().catch(() => null) 
                     : null;
 
+                if (!auth || !auth.signature) {
+                    console.warn('[ImageKit Sync] Không thể tạo chữ ký xác thực');
+                    return false;
+                }
+
                 const formData = new FormData();
-                formData.append('file', blob, 'memories_cloud.json');
+                formData.append('file', filePayload, 'memories_cloud.json');
                 formData.append('fileName', 'memories_cloud.json');
                 formData.append('folder', '/anhuyen_sync');
                 formData.append('useUniqueFileName', 'false');
                 formData.append('overwriteFile', 'true');
-
-                if (auth && auth.signature) {
-                    formData.append('publicKey', imagekitConfig.publicKey);
-                    formData.append('signature', auth.signature);
-                    formData.append('expire', String(auth.expire));
-                    formData.append('token', auth.token);
-                }
-
-                const headers = {};
-                if (imagekitConfig.privateKey) {
-                    headers['Authorization'] = 'Basic ' + btoa(imagekitConfig.privateKey + ':');
-                }
+                formData.append('publicKey', imagekitConfig.publicKey);
+                formData.append('signature', auth.signature);
+                formData.append('expire', String(auth.expire));
+                formData.append('token', auth.token);
 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 20000);
                 const resp = await fetch(uploadUrl, {
                     method: 'POST',
-                    headers: headers,
                     body: formData,
                     signal: controller.signal
                 });
@@ -704,8 +705,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSyncStatusUI('syncing');
 
             let updated = false;
+            const allRemoteMemories = [];
 
-            // Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều, phản hồi tức thì, không cần token)
+            // 1. Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều tức thì trên CDN)
             try {
                 const ikUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitJsonUrl) 
                     || 'https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json';
@@ -729,103 +731,82 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (Array.isArray(cloudMemories) && cloudMemories.length > 0) {
-                        const merged = this.mergeWithLocal(cloudMemories);
-                        this._cache = merged;
-                        try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
-                        try { await IDBStorage.saveAll(merged); } catch (e) {}
-
-                        if (typeof renderMemories === 'function') renderMemories();
-                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
-
-                        // Nếu thiết bị này có thêm kỷ niệm chưa có trên cloud: tự động đẩy lên cloud an toàn
-                        if (merged.length > cloudMemories.length) {
-                            setTimeout(() => this.syncToImageKit(merged), 600);
-                        }
-
-                        updated = true;
-                        updateSyncStatusUI('synced');
+                        allRemoteMemories.push(...cloudMemories);
                     }
                 }
             } catch (ikErr) {
                 console.warn('[Cloud Sync] ImageKit fetch:', ikErr.message);
             }
 
-            // Nguồn 2: GitHub Raw contents
-            if (!updated || force) {
-                try {
-                    const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
-                    const ghResp = await fetch(ghRawUrl, {
-                        cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' }
-                    });
-                    if (ghResp.ok) {
-                        const ghMemories = await ghResp.json();
-                        if (Array.isArray(ghMemories) && ghMemories.length > 0) {
-                            const merged = this.mergeWithLocal(ghMemories);
-                            this._cache = merged;
-                            try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
-                            try { await IDBStorage.saveAll(merged); } catch (e) {}
+            // 2. Nguồn 2: GitHub Raw contents (Luôn đồng bộ song song để nhận ngay khi máy tính push lên GitHub)
+            try {
+                const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
+                const ghResp = await fetch(ghRawUrl, {
+                    cache: 'no-store',
+                    headers: { 'Cache-Control': 'no-cache, no-store' }
+                });
+                if (ghResp.ok) {
+                    const ghMemories = await ghResp.json();
+                    if (Array.isArray(ghMemories) && ghMemories.length > 0) {
+                        allRemoteMemories.push(...ghMemories);
+                    }
+                }
+            } catch (ghErr) {}
 
-                            if (typeof renderMemories === 'function') renderMemories();
-                            if (typeof renderVietnamMap === 'function') renderVietnamMap();
-                            updated = true;
-                            updateSyncStatusUI('synced');
+            // 3. Nguồn 3: Local Node API (Chỉ khi chạy cục bộ localhost:8080)
+            const endpoints = this.getEndpoints('/api/memories');
+            for (const ep of endpoints) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 2000);
+                    const resp = await fetch(`${ep}?_t=${Date.now()}`, {
+                        mode: 'cors',
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache, no-store' },
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        const serverMemories = Array.isArray(data) ? data : (data.memories || []);
+                        if (Array.isArray(serverMemories) && serverMemories.length > 0) {
+                            allRemoteMemories.push(...serverMemories);
+                            break;
                         }
                     }
-                } catch (ghErr) {}
+                } catch (e) {}
             }
 
-            // Nguồn 3: Local Node API (Khi chạy local với server.js / server.ps1)
-            if (!updated) {
-                const endpoints = this.getEndpoints('/api/memories');
-                for (const ep of endpoints) {
-                    try {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000);
-                        const resp = await fetch(`${ep}?_t=${Date.now()}`, {
-                            mode: 'cors',
-                            cache: 'no-store',
-                            headers: { 'Cache-Control': 'no-cache, no-store' },
-                            signal: controller.signal
-                        });
-                        clearTimeout(timeoutId);
-                        if (resp.ok) {
-                            const data = await resp.json();
-                            const serverMemories = Array.isArray(data) ? data : (data.memories || []);
-                            if (Array.isArray(serverMemories)) {
-                                const merged = this.mergeWithLocal(serverMemories);
-                                this._cache = merged;
-                                try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
-                                try { await IDBStorage.saveAll(merged); } catch (e) {}
-                                if (typeof renderMemories === 'function') renderMemories();
-                                if (typeof renderVietnamMap === 'function') renderVietnamMap();
-                                updated = true;
-                                updateSyncStatusUI('synced');
-                                break;
-                            }
-                        }
-                    } catch (e) {}
-                }
-            }
-
-            // Nguồn 4: memories.json tĩnh tương đối
-            if (!updated) {
+            // 4. Nguồn 4: memories.json tĩnh tương đối dự phòng
+            if (allRemoteMemories.length === 0) {
                 try {
                     const resp = await fetch(`memories.json?_t=${Date.now()}`);
                     if (resp.ok) {
                         const staticMemories = await resp.json();
                         if (Array.isArray(staticMemories) && staticMemories.length > 0) {
-                            const merged = this.mergeWithLocal(staticMemories);
-                            this._cache = merged;
-                            try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
-                            try { await IDBStorage.saveAll(merged); } catch (e) {}
-                            if (typeof renderMemories === 'function') renderMemories();
-                            if (typeof renderVietnamMap === 'function') renderVietnamMap();
-                            updated = true;
-                            updateSyncStatusUI('synced');
+                            allRemoteMemories.push(...staticMemories);
                         }
                     }
                 } catch (e) {}
+            }
+
+            // 5. Gộp thông minh tất cả nguồn từ xa với bộ nhớ máy khách (Smart Merge)
+            if (allRemoteMemories.length > 0) {
+                const merged = this.mergeWithLocal(allRemoteMemories);
+                this._cache = merged;
+                try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                try { await IDBStorage.saveAll(merged); } catch (e) {}
+
+                if (typeof renderMemories === 'function') renderMemories();
+                if (typeof renderVietnamMap === 'function') renderVietnamMap();
+
+                // Tự động đẩy phiên bản gộp mới nhất lên ImageKit để các máy khác cập nhật theo
+                if (merged.length > 0) {
+                    setTimeout(() => this.syncToImageKit(merged), 800);
+                }
+
+                updated = true;
+                updateSyncStatusUI('synced');
             }
 
             this._isFetching = false;
@@ -845,14 +826,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 return clean.length > 0 ? clean : [window.FALLBACK_IMG_PLACEHOLDER];
             };
 
-            // 1. Nạp danh sách server (Server / Cloud là cơ sở)
+            // 1. Nạp danh sách server (Server / Cloud là cơ sở, gộp nếu trùng ID từ nhiều nguồn từ xa)
             for (const item of (serverMemories || [])) {
                 if (!item || !item.id) continue;
                 const idStr = String(item.id);
                 if (deletedIds.includes(idStr)) continue;
 
                 const cleanImgs = sanitizeImages(item.images || item.image);
-                map.set(idStr, { ...item, images: cleanImgs });
+                if (!map.has(idStr)) {
+                    map.set(idStr, { ...item, images: cleanImgs });
+                } else {
+                    const existing = map.get(idStr);
+                    const combined = [...sanitizeImages(existing.images || existing.image)];
+                    for (const img of cleanImgs) {
+                        if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img)) {
+                            combined.push(img);
+                        }
+                    }
+                    const timeExisting = new Date(existing.updatedAt || existing.date || existing.createdAt || 0).getTime() || 0;
+                    const timeNew = new Date(item.updatedAt || item.date || item.createdAt || 0).getTime() || 0;
+                    const baseItem = timeNew > timeExisting ? item : existing;
+                    map.set(idStr, { ...baseItem, images: combined.length > 0 ? combined : [window.FALLBACK_IMG_PLACEHOLDER] });
+                }
             }
 
             // 2. Thuật toán Smart Merge: Gộp an toàn với kỷ niệm local
