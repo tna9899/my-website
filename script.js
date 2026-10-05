@@ -637,6 +637,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     return true;
                 }
                 return false;
+            } catch (err) {
+                console.warn('[GitHub Sync] Ngoại lệ khi lưu GitHub:', err);
+                return false;
+            }
+        },
+
         async syncToFirebase(memories) {
             if (!window.isFirebaseConfigured || !window.firebaseDB) return false;
             try {
