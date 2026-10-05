@@ -30,6 +30,9 @@ const githubSyncConfig = {
     imageKitUploadEndpoint: "https://upload.imagekit.io/api/v1/files/upload"
 };
 
+// Đảm bảo gắn vào window cho toàn bộ ứng dụng truy cập
+window.githubSyncConfig = githubSyncConfig;
+
 // Hàm lấy token từ cấu hình file hoặc từ bộ nhớ trình duyệt
 window.getGitHubSyncToken = function() {
     const localToken = localStorage.getItem('weddingGitHubToken');

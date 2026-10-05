@@ -517,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         async syncToImageKit(memories) {
             try {
-                if (typeof imagekitConfig === 'undefined' || !imagekitConfig.privateKey) {
+                if (typeof imagekitConfig === 'undefined' || !imagekitConfig.publicKey) {
                     return false;
                 }
                 const uploadUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitUploadEndpoint) || 'https://upload.imagekit.io/api/v1/files/upload';
@@ -543,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (auth && auth.signature) {
                     formData.append('publicKey', imagekitConfig.publicKey);
                     formData.append('signature', auth.signature);
-                    formData.append('expire', auth.expire);
+                    formData.append('expire', String(auth.expire));
                     formData.append('token', auth.token);
                 }
 
@@ -553,7 +553,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                const timeoutId = setTimeout(() => controller.abort(), 20000);
                 const resp = await fetch(uploadUrl, {
                     method: 'POST',
                     headers: headers,
@@ -691,7 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return await this.syncToServer(nextData);
             }
 
-            updateSyncStatusUI(hasCloudSuccess ? 'synced' : 'synced');
+            updateSyncStatusUI('synced');
             return true;
         },
 
@@ -734,9 +734,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof renderMemories === 'function') renderMemories();
                         if (typeof renderVietnamMap === 'function') renderVietnamMap();
 
-                        // Nếu thiết bị này có thêm kỷ niệm chưa có trên cloud: tự động đẩy lên cloud ngay
+                        // Nếu thiết bị này có thêm kỷ niệm chưa có trên cloud: tự động đẩy lên cloud an toàn
                         if (merged.length > cloudMemories.length) {
-                            setTimeout(() => this.syncToImageKit(merged), 400);
+                            setTimeout(() => this.syncToImageKit(merged), 600);
                         }
 
                         updated = true;
@@ -748,7 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Nguồn 2: GitHub Raw contents
-            if (!updated) {
+            if (!updated || force) {
                 try {
                     const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
                     const ghResp = await fetch(ghRawUrl, {
@@ -772,7 +772,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } catch (ghErr) {}
             }
 
-            // Nguồn 3: Local Node API (Khi chạy local với server.js)
+            // Nguồn 3: Local Node API (Khi chạy local với server.js / server.ps1)
             if (!updated) {
                 const endpoints = this.getEndpoints('/api/memories');
                 for (const ep of endpoints) {
@@ -838,27 +838,52 @@ document.addEventListener('DOMContentLoaded', () => {
             // Hàm lọc và làm sạch danh sách ảnh hợp lệ của 1 kỷ niệm
             const sanitizeImages = (rawImgs) => {
                 const arr = Array.isArray(rawImgs) ? rawImgs : (rawImgs ? [rawImgs] : []);
-                const clean = arr.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+                const clean = arr.filter(img => img && typeof img === 'string' && img.trim().length > 5 && !img.includes('undefined') && !img.includes('null'));
                 return clean.length > 0 ? clean : [window.FALLBACK_IMG_PLACEHOLDER];
             };
 
-            // 1. Nạp danh sách server trước (Server là nguồn chân lý cho dữ liệu đã đồng bộ)
-            for (const item of serverMemories) {
+            // 1. Nạp danh sách server (Server / Cloud là cơ sở)
+            for (const item of (serverMemories || [])) {
                 if (!item || !item.id) continue;
                 const idStr = String(item.id);
                 if (deletedIds.includes(idStr)) continue;
 
-                map.set(idStr, { ...item, images: sanitizeImages(item.images || item.image) });
+                const cleanImgs = sanitizeImages(item.images || item.image);
+                map.set(idStr, { ...item, images: cleanImgs });
             }
 
-            // 2. Giữ lại các kỷ niệm ở máy local chưa có trên server (nếu chưa bị xóa)
-            for (const localItem of localMemories) {
+            // 2. Thuật toán Smart Merge: Gộp an toàn với kỷ niệm local
+            for (const localItem of (localMemories || [])) {
                 if (!localItem || !localItem.id) continue;
                 const idStr = String(localItem.id);
                 if (deletedIds.includes(idStr)) continue;
 
                 if (!map.has(idStr)) {
-                    map.set(idStr, { ...localItem, images: sanitizeImages(localItem.images || localItem.image) });
+                    // Kỷ niệm mới có ở local (vừa đăng trên thiết bị này chưa đẩy lên cloud)
+                    const cleanImgs = sanitizeImages(localItem.images || localItem.image);
+                    map.set(idStr, { ...localItem, images: cleanImgs });
+                } else {
+                    // Kỷ niệm có ở cả 2: gộp danh sách ảnh để không bao giờ bị mất ảnh
+                    const existing = map.get(idStr);
+                    const serverImgs = sanitizeImages(existing.images || existing.image);
+                    const localImgs = sanitizeImages(localItem.images || localItem.image);
+
+                    const combined = [...serverImgs];
+                    for (const img of localImgs) {
+                        if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img)) {
+                            combined.push(img);
+                        }
+                    }
+                    const cleanCombined = combined.filter(i => i && i !== window.FALLBACK_IMG_PLACEHOLDER);
+
+                    const timeServer = new Date(existing.updatedAt || existing.date || existing.createdAt || 0).getTime() || 0;
+                    const timeLocal = new Date(localItem.updatedAt || localItem.date || localItem.createdAt || 0).getTime() || 0;
+                    const baseItem = timeLocal > timeServer ? localItem : existing;
+
+                    map.set(idStr, {
+                        ...baseItem,
+                        images: cleanCombined.length > 0 ? cleanCombined : [window.FALLBACK_IMG_PLACEHOLDER]
+                    });
                 }
             }
 
@@ -896,15 +921,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {}
 
             // Đồng bộ dữ liệu mới nhất từ ImageKit Đám Mây & GitHub
-            await this.fetchLatestFromServer();
-
-            // Nếu local có sẵn kỷ niệm (ví dụ người dùng vừa thêm trên máy tính), tự động đẩy lên Cloud
-            const currentMemories = this.getAll();
-            if (currentMemories && currentMemories.length > 0) {
-                setTimeout(() => {
-                    this.syncToImageKit(currentMemories);
-                }, 1500);
-            }
+            await this.fetchLatestFromServer(true);
 
             // Tự động kiểm tra và đồng bộ khi người dùng quay lại tab web hoặc mở điện thoại
             document.addEventListener('visibilitychange', () => {
@@ -915,14 +932,17 @@ document.addEventListener('DOMContentLoaded', () => {
             window.addEventListener('focus', () => {
                 this.checkServerVersionAndSync();
             });
+            window.addEventListener('pageshow', () => {
+                this.checkServerVersionAndSync();
+            });
 
-            // Tự động kiểm tra định kỳ mỗi 20 giây khi tab đang mở
+            // Tự động kiểm tra định kỳ mỗi 15 giây khi tab đang mở
             if (!this._pollTimer) {
                 this._pollTimer = setInterval(() => {
                     if (document.visibilityState === 'visible') {
                         this.checkServerVersionAndSync();
                     }
-                }, 20000);
+                }, 15000);
             }
         },
 
@@ -1491,11 +1511,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (syncStatusBtn) {
         syncStatusBtn.addEventListener('click', async () => {
             updateSyncStatusUI('syncing');
-            const ok = await MemoryStore.fetchLatestFromServer();
+            const ok = await MemoryStore.fetchLatestFromServer(true);
+            const count = MemoryStore.getAll().length;
             if (ok) {
-                Logger.log('MANUAL_SYNC_SUCCESS', 'Người dùng đã bấm đồng bộ thành công');
+                Logger.log('MANUAL_SYNC_SUCCESS', `Người dùng đã bấm đồng bộ thành công (${count} kỷ niệm)`);
+                alert(`✅ Đã đồng bộ thành công! Hiện có ${count} album kỷ niệm cập nhật mới nhất từ đám mây.`);
             } else {
-                Logger.log('MANUAL_SYNC_FAILED', 'Người dùng bấm đồng bộ nhưng máy chủ chưa phản hồi');
+                Logger.log('MANUAL_SYNC_NOTICE', `Dữ liệu hiện tại đã là mới nhất (${count} kỷ niệm)`);
+                alert(`✨ Dữ liệu trên thiết bị của bạn đã là mới nhất (${count} album kỷ niệm).`);
             }
         });
     }
