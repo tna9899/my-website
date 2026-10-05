@@ -637,8 +637,61 @@ document.addEventListener('DOMContentLoaded', () => {
                     return true;
                 }
                 return false;
+        async syncToFirebase(memories) {
+            if (!window.isFirebaseConfigured || !window.firebaseDB) return false;
+            try {
+                const cleanList = (memories || []).map(m => ({
+                    id: String(m.id || Date.now()),
+                    images: Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []),
+                    content: m.content || '',
+                    location: m.location || '',
+                    date: m.date || '',
+                    createdAt: m.createdAt || new Date().toISOString()
+                }));
+                await window.firebaseDB.ref('memories').set(cleanList);
+                Logger.log('FIREBASE_SYNC_SUCCESS', `Đã đồng bộ ${cleanList.length} kỷ niệm lên Firebase Realtime Database`);
+                return true;
             } catch (err) {
-                console.warn('[GitHub Sync] Ngoại lệ khi lưu GitHub:', err);
+                console.warn('[Firebase Sync] Ngoại lệ khi ghi Firebase Realtime Database:', err);
+                return false;
+            }
+        },
+
+        initFirebaseRealtimeSync() {
+            if (!window.isFirebaseConfigured || !window.firebaseDB) return false;
+            try {
+                const memRef = window.firebaseDB.ref('memories');
+                // Lắng nghe WebSocket thời gian thực: Mọi thay đổi từ bất kỳ máy nào đều nhận tức thì (<0.1s)
+                memRef.on('value', async (snapshot) => {
+                    const val = snapshot.val();
+                    let remoteList = [];
+                    if (Array.isArray(val)) {
+                        remoteList = val;
+                    } else if (val && typeof val === 'object') {
+                        remoteList = Object.values(val);
+                    }
+
+                    if (remoteList && remoteList.length > 0) {
+                        const merged = this.mergeWithLocal(remoteList);
+                        this._cache = merged;
+                        try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                        try { await IDBStorage.saveAll(merged); } catch (e) {}
+                        if (typeof renderMemories === 'function') renderMemories();
+                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                        updateSyncStatusUI('synced');
+                    } else {
+                        // Tự động chuyển 5 album kỷ niệm ban đầu lên Firebase nếu DB mới tạo còn trống
+                        const local = this.getAll();
+                        if (local && local.length > 0) {
+                            await memRef.set(local);
+                            console.log('[Firebase] Đã tự động chuyển dữ liệu ban đầu lên Firebase:', local.length);
+                        }
+                    }
+                });
+                console.log('⚡ [Firebase Realtime] Đã kích hoạt lắng nghe WebSocket thời gian thực.');
+                return true;
+            } catch (e) {
+                console.warn('[Firebase Realtime] Lỗi gắn listener:', e);
                 return false;
             }
         },
@@ -653,6 +706,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const list = memoriesToSend || this.getAll();
             let hasCloudSuccess = false;
+
+            // 0. Đồng bộ lên Firebase Realtime Database (Tức thì <0.1s cho mọi thiết bị)
+            if (window.isFirebaseConfigured && window.firebaseDB) {
+                const fbSuccess = await this.syncToFirebase(list);
+                if (fbSuccess) hasCloudSuccess = true;
+            }
 
             // 1. Đồng bộ lên ImageKit Cloud JSON (Tự động 2 chiều, phản hồi tức thì giữa PC & Mobile)
             const ikSuccess = await this.syncToImageKit(list);
@@ -918,6 +977,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 this._version = localStorage.getItem(this.versionKey) || 0;
             } catch (e) {}
 
+            // Kích hoạt kết nối thời gian thực Firebase WebSocket (nếu đã cấu hình)
+            this.initFirebaseRealtimeSync();
+
             // Đồng bộ dữ liệu mới nhất từ ImageKit Đám Mây & GitHub
             await this.fetchLatestFromServer(true);
 
@@ -1116,7 +1178,64 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // 1. TẢI QUA IMAGEKIT.IO (CDN TOÀN CẦU)
+        // 1. TẢI QUA GOOGLE FIREBASE CLOUD STORAGE (NẾU ĐÃ KẾT NỐI FIREBASE)
+        if (window.isFirebaseConfigured && window.firebaseStorage) {
+            try {
+                const uploadSingleFirebase = async (img, i) => {
+                    if (!img || typeof img !== 'string') return null;
+
+                    // Nếu ảnh đã là URL trực tuyến -> Giữ nguyên
+                    if (img.startsWith('http://') || img.startsWith('https://')) {
+                        completed++;
+                        updateProgress();
+                        return img.trim();
+                    }
+
+                    if (img.startsWith('data:image/')) {
+                        if (img.length < 100) return null;
+                        try {
+                            let ext = 'jpg';
+                            const commaIdx = img.indexOf(',');
+                            if (commaIdx !== -1) {
+                                const header = img.substring(0, commaIdx);
+                                const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
+                                if (match) {
+                                    let mExt = match[1].toLowerCase();
+                                    if (mExt === 'jpeg') ext = 'jpg';
+                                    else if (/^(jpg|png|webp|gif|svg|avif|heic|heif)$/.test(mExt)) ext = mExt;
+                                }
+                            }
+
+                            const fileName = `memories/img_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+                            const storageRef = window.firebaseStorage.ref(fileName);
+                            const snapshot = await storageRef.putString(img, 'data_url');
+                            const downloadUrl = await snapshot.ref.getDownloadURL();
+
+                            completed++;
+                            updateProgress();
+                            Logger.log('FIREBASE_STORAGE_SUCCESS', `Đã lưu ảnh Google Cloud: ${fileName}`);
+                            return downloadUrl;
+                        } catch (fbErr) {
+                            console.error('[Firebase Storage] Lỗi tải ảnh:', fbErr);
+                            return img.length > 200 ? img : null;
+                        }
+                    } else if (img.trim().length > 5) {
+                        completed++;
+                        updateProgress();
+                        return img.trim();
+                    }
+                    return null;
+                };
+
+                const fbResults = await Promise.all(imagesArray.map((img, idx) => uploadSingleFirebase(img, idx)));
+                const validFb = fbResults.filter(Boolean);
+                if (validFb.length > 0) return validFb;
+            } catch (fbOverallErr) {
+                console.warn('[Firebase Storage] Thử qua ImageKit do lỗi:', fbOverallErr);
+            }
+        }
+
+        // 2. DỰ PHÒNG: TẢI QUA IMAGEKIT.IO (CDN TOÀN CẦU)
         if (window.isImageKitConfigured && imagekitConfig.publicKey && imagekitConfig.privateKey) {
             const uploadSingle = async (img, i) => {
                 if (!img || typeof img !== 'string') return null;
@@ -1816,6 +1935,80 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally {
                 btnSaveGithubToken.disabled = false;
                 btnSaveGithubToken.textContent = 'Lưu';
+            }
+        });
+    }
+
+    // 5. Cấu hình Firebase Realtime Database & Cloud Storage
+    const inputFirebaseConfig = document.getElementById('input-firebase-config');
+    const btnSaveFirebaseConfig = document.getElementById('btn-save-firebase-config');
+    const btnClearFirebaseConfig = document.getElementById('btn-clear-firebase-config');
+    const settingsFirebaseBadge = document.getElementById('settings-firebase-badge');
+    const firebaseSyncStatusMsg = document.getElementById('firebase-sync-status-msg');
+
+    const updateFirebaseBadgeUI = () => {
+        if (!settingsFirebaseBadge) return;
+        if (window.isFirebaseConfigured && window.firebaseDB) {
+            settingsFirebaseBadge.textContent = '🟢 Đã kết nối Realtime';
+            settingsFirebaseBadge.className = 'px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 text-[11px]';
+        } else if (window.isFirebaseConfigured) {
+            settingsFirebaseBadge.textContent = '🟡 Đang kết nối...';
+            settingsFirebaseBadge.className = 'px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 text-[11px]';
+        } else {
+            settingsFirebaseBadge.textContent = 'Chưa cấu hình';
+            settingsFirebaseBadge.className = 'px-2 py-0.5 rounded-full font-bold bg-gray-100 text-gray-600 text-[11px]';
+        }
+    };
+
+    updateFirebaseBadgeUI();
+
+    if (inputFirebaseConfig) {
+        try {
+            const currentCfg = localStorage.getItem('weddingFirebaseConfig');
+            if (currentCfg) {
+                inputFirebaseConfig.value = currentCfg;
+            }
+        } catch (e) {}
+    }
+
+    if (btnSaveFirebaseConfig && inputFirebaseConfig) {
+        btnSaveFirebaseConfig.addEventListener('click', () => {
+            const rawVal = inputFirebaseConfig.value || '';
+            if (!rawVal.trim()) {
+                alert('Vui lòng dán đoạn mã cấu hình Firebase Config!');
+                return;
+            }
+
+            if (typeof window.saveFirebaseConfig === 'function') {
+                const res = window.saveFirebaseConfig(rawVal);
+                if (res.success) {
+                    if (firebaseSyncStatusMsg) {
+                        firebaseSyncStatusMsg.textContent = '✅ Đã lưu cấu hình Firebase! Đang tải lại trang...';
+                        firebaseSyncStatusMsg.className = 'text-[11px] text-emerald-600 font-bold';
+                    }
+                    alert('✅ Đã lưu cấu hình Firebase thành công! Trang web sẽ tải lại để kích hoạt kết nối thời gian thực.');
+                    setTimeout(() => window.location.reload(), 500);
+                } else {
+                    if (firebaseSyncStatusMsg) {
+                        firebaseSyncStatusMsg.textContent = '⚠️ ' + res.message;
+                        firebaseSyncStatusMsg.className = 'text-[11px] text-rose-500 font-bold';
+                    }
+                    alert('⚠️ Lỗi cấu hình: ' + res.message);
+                }
+            }
+        });
+    }
+
+    if (btnClearFirebaseConfig) {
+        btnClearFirebaseConfig.addEventListener('click', () => {
+            if (confirm('Bạn có chắc chắn muốn xóa cấu hình Firebase khỏi thiết bị này?')) {
+                if (typeof window.clearFirebaseConfig === 'function') {
+                    window.clearFirebaseConfig();
+                }
+                if (inputFirebaseConfig) inputFirebaseConfig.value = '';
+                updateFirebaseBadgeUI();
+                alert('Đã xóa cấu hình Firebase. Trang web sẽ tải lại.');
+                window.location.reload();
             }
         });
     }
