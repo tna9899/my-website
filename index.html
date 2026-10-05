@@ -1085,20 +1085,19 @@
                             📖 Hướng Dẫn Đăng Ký (2 phút)
                         </a>
                     </div>
-                </div>
-            <!-- PHẦN 3: GOOGLE FIREBASE CLOUD STORAGE & REALTIME DATABASE -->
+            <!-- PHẦN 3: GOOGLE FIREBASE REALTIME DATABASE (ĐỒNG BỘ THỜI GIAN THỰC) -->
             <div class="mb-4 pt-4 border-t border-gray-100">
                 <h4 class="text-sm font-bold text-gray-800 mb-3 flex items-center justify-between">
                     <div class="flex items-center space-x-1.5">
                         <span class="text-amber-500">🔥</span>
-                        <span>Google Firebase (Lưu Trữ Ảnh & Đồng Bộ Thời Gian Thực)</span>
+                        <span>Google Firebase (Đồng Bộ Thời Gian Thực Siêu Tốc)</span>
                     </div>
                     <span id="settings-firebase-badge" class="px-2 py-0.5 rounded-full font-bold bg-gray-100 text-gray-600 text-[11px]">Chưa cấu hình</span>
                 </h4>
                 
                 <div class="p-3.5 rounded-2xl bg-gradient-to-br from-amber-50/70 to-orange-50/50 border border-amber-200/80 text-xs space-y-2.5">
                     <p class="text-gray-600 leading-relaxed">
-                        Lưu trữ ảnh Google Cloud CDN & đồng bộ tức thì (<b class="text-amber-700">dưới 0.1 giây</b>) qua kết nối WebSocket thời gian thực giữa máy tính và điện thoại.
+                        Toàn bộ ảnh lưu trên <b>ImageKit.io</b> (20GB CDN miễn phí). Firebase Realtime Database truyền tín hiệu WebSocket tức thì (<b class="text-amber-700">dưới 0.1 giây</b>) giữa máy tính và điện thoại.
                     </p>
                     
                     <div class="space-y-1.5">
@@ -1278,15 +1277,14 @@
     <!-- Google Firebase SDK v10 Compat (Google CDN) -->
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js"></script>
-    <!-- Cấu hình Firebase Realtime Database & Cloud Storage -->
-    <script src="firebase-config.js?v=4.0"></script>
+    <!-- Cấu hình Firebase Realtime Database -->
+    <script src="firebase-config.js?v=4.1"></script>
 
-    <!-- Cấu hình lưu trữ ảnh ImageKit.io (Dự phòng 20GB CDN miễn phí) -->
-    <script src="imagekit-config.js?v=4.0"></script>
+    <!-- Cấu hình lưu trữ ảnh ImageKit.io (20GB CDN miễn phí chính thức) -->
+    <script src="imagekit-config.js?v=4.1"></script>
     <!-- Cấu hình đồng bộ đa thiết bị Cloud ImageKit & GitHub -->
-    <script src="github-sync-config.js?v=4.0"></script>
+    <script src="github-sync-config.js?v=4.1"></script>
     <!-- Script Logic Chính -->
-    <script src="script.js?v=4.0"></script>
+    <script src="script.js?v=4.1"></script>
 </body>
 </html>

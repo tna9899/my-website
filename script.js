@@ -1178,64 +1178,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // 1. TẢI QUA GOOGLE FIREBASE CLOUD STORAGE (NẾU ĐÃ KẾT NỐI FIREBASE)
-        if (window.isFirebaseConfigured && window.firebaseStorage) {
-            try {
-                const uploadSingleFirebase = async (img, i) => {
-                    if (!img || typeof img !== 'string') return null;
-
-                    // Nếu ảnh đã là URL trực tuyến -> Giữ nguyên
-                    if (img.startsWith('http://') || img.startsWith('https://')) {
-                        completed++;
-                        updateProgress();
-                        return img.trim();
-                    }
-
-                    if (img.startsWith('data:image/')) {
-                        if (img.length < 100) return null;
-                        try {
-                            let ext = 'jpg';
-                            const commaIdx = img.indexOf(',');
-                            if (commaIdx !== -1) {
-                                const header = img.substring(0, commaIdx);
-                                const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
-                                if (match) {
-                                    let mExt = match[1].toLowerCase();
-                                    if (mExt === 'jpeg') ext = 'jpg';
-                                    else if (/^(jpg|png|webp|gif|svg|avif|heic|heif)$/.test(mExt)) ext = mExt;
-                                }
-                            }
-
-                            const fileName = `memories/img_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-                            const storageRef = window.firebaseStorage.ref(fileName);
-                            const snapshot = await storageRef.putString(img, 'data_url');
-                            const downloadUrl = await snapshot.ref.getDownloadURL();
-
-                            completed++;
-                            updateProgress();
-                            Logger.log('FIREBASE_STORAGE_SUCCESS', `Đã lưu ảnh Google Cloud: ${fileName}`);
-                            return downloadUrl;
-                        } catch (fbErr) {
-                            console.error('[Firebase Storage] Lỗi tải ảnh:', fbErr);
-                            return img.length > 200 ? img : null;
-                        }
-                    } else if (img.trim().length > 5) {
-                        completed++;
-                        updateProgress();
-                        return img.trim();
-                    }
-                    return null;
-                };
-
-                const fbResults = await Promise.all(imagesArray.map((img, idx) => uploadSingleFirebase(img, idx)));
-                const validFb = fbResults.filter(Boolean);
-                if (validFb.length > 0) return validFb;
-            } catch (fbOverallErr) {
-                console.warn('[Firebase Storage] Thử qua ImageKit do lỗi:', fbOverallErr);
-            }
-        }
-
-        // 2. DỰ PHÒNG: TẢI QUA IMAGEKIT.IO (CDN TOÀN CẦU)
+        // 1. TẢI ẢNH LÊN IMAGEKIT.IO (LƯU TRỮ ẢNH CDN CHÍNH THỨC)
         if (window.isImageKitConfigured && imagekitConfig.publicKey && imagekitConfig.privateKey) {
             const uploadSingle = async (img, i) => {
                 if (!img || typeof img !== 'string') return null;
