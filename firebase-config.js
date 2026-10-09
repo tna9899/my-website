@@ -12,13 +12,14 @@
 
 // Cấu hình mặc định (Bạn có thể điền trực tiếp vào đây hoặc nhập qua giao diện Cài Đặt web)
 const defaultFirebaseConfig = {
-    apiKey: "",
-    authDomain: "",
-    databaseURL: "",
-    projectId: "",
-    storageBucket: "",
-    messagingSenderId: "",
-    appId: ""
+    apiKey: "AIzaSyD0nq6wb7EKm7eSHW3dp2F9f2GCrbTJX7o",
+    authDomain: "anhuyen-e8d70.firebaseapp.com",
+    databaseURL: "https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "anhuyen-e8d70",
+    storageBucket: "anhuyen-e8d70.firebasestorage.app",
+    messagingSenderId: "21876934485",
+    appId: "1:21876934485:web:190db6148cda43b01311dc",
+    measurementId: "G-8GH7C4NLC6"
 };
 
 (function() {
@@ -98,27 +99,74 @@ const defaultFirebaseConfig = {
     // 4. Các hàm tiện ích hỗ trợ lưu/xóa cấu hình từ giao diện người dùng
     window.saveFirebaseConfig = function(configInput) {
         try {
-            let configObj = configInput;
-            if (typeof configInput === 'string') {
-                let cleanStr = configInput.trim();
-                // Nếu người dùng copy cả "const firebaseConfig = { ... };"
-                if (cleanStr.includes('{') && cleanStr.includes('}')) {
-                    const start = cleanStr.indexOf('{');
-                    const end = cleanStr.lastIndexOf('}');
-                    cleanStr = cleanStr.substring(start, end + 1);
+            let configObj = null;
+
+            if (configInput && typeof configInput === 'object') {
+                configObj = configInput;
+            } else if (typeof configInput === 'string') {
+                let str = configInput.trim();
+
+                // 1. Cắt lấy phần đối tượng giữa cặp ngoặc nhọn { ... } nếu có
+                if (str.includes('{') && str.includes('}')) {
+                    const start = str.indexOf('{');
+                    const end = str.lastIndexOf('}');
+                    str = str.substring(start, end + 1);
                 }
-                // Thay thế các key không có ngoặc kép để JSON.parse đọc được
-                cleanStr = cleanStr.replace(/([a-zA-Z0-9_]+)\s*:/g, '"$1":');
-                // Xóa dấu phẩy thừa cuối object
-                cleanStr = cleanStr.replace(/,\s*}/g, '}');
-                configObj = JSON.parse(cleanStr);
+
+                // 2. Thử phân tích cú pháp bằng JSON.parse trực tiếp
+                try {
+                    configObj = JSON.parse(str);
+                } catch (e) {}
+
+                // 3. Nếu không phải JSON chuẩn, phân tích như JavaScript Object Literal
+                if (!configObj) {
+                    try {
+                        const fn = new Function('return (' + str + ');');
+                        const evaluated = fn();
+                        if (evaluated && typeof evaluated === 'object' && !Array.isArray(evaluated)) {
+                            configObj = evaluated;
+                        }
+                    } catch (e) {}
+                }
+
+                // 4. Fallback: Trích xuất từng trường Firebase độc lập bằng Regex
+                if (!configObj || !configObj.apiKey || !configObj.projectId) {
+                    const fields = {};
+                    const knownKeys = [
+                        'apiKey', 'authDomain', 'databaseURL', 'projectId',
+                        'storageBucket', 'messagingSenderId', 'appId', 'measurementId'
+                    ];
+                    for (const key of knownKeys) {
+                        const regex = new RegExp(`['"]?${key}['"]?\\s*:\\s*['"\`]?([^'",\`\\r\\n}]+)['"\`]?`, 'i');
+                        const match = configInput.match(regex);
+                        if (match && match[1]) {
+                            fields[key] = match[1].trim();
+                        }
+                    }
+                    if (fields.apiKey && fields.projectId) {
+                        configObj = fields;
+                    }
+                }
             }
 
             if (!configObj || !configObj.apiKey || !configObj.projectId) {
-                throw new Error('Cấu hình Firebase phải bao gồm tối thiểu "apiKey" và "projectId"!');
+                throw new Error('Cấu hình Firebase không hợp lệ hoặc thiếu "apiKey" / "projectId"!');
             }
 
-            localStorage.setItem('weddingFirebaseConfig', JSON.stringify(configObj));
+            // Chuẩn hóa và làm sạch dữ liệu các trường
+            const cleanObj = {};
+            for (const [k, v] of Object.entries(configObj)) {
+                if (typeof v === 'string') {
+                    cleanObj[k] = v.trim();
+                } else if (v !== undefined && v !== null) {
+                    cleanObj[k] = String(v).trim();
+                }
+            }
+
+            localStorage.setItem('weddingFirebaseConfig', JSON.stringify(cleanObj, null, 2));
+            window.firebaseConfig = cleanObj;
+            window.isFirebaseConfigured = true;
+
             return { success: true, message: 'Đã lưu cấu hình Firebase thành công!' };
         } catch (err) {
             return { success: false, message: err.message };

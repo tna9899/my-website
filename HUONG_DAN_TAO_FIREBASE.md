@@ -60,8 +60,18 @@ Bạn chỉ mất khoảng **2 phút** để kích hoạt:
      messagingSenderId: "1234567890",
      appId: "1:1234567890:web:abcdef123456"
    };
+   ```javascript
+   const firebaseConfig = {
+     apiKey: "AIzaSyD0nq6wb7EKm7eSHW3dp2F9f2GCrbTJX7o",
+     authDomain: "anhuyen-e8d70.firebaseapp.com",
+     databaseURL: "https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app",
+     projectId: "anhuyen-e8d70",
+     storageBucket: "anhuyen-e8d70.firebasestorage.app",
+     messagingSenderId: "21876934485",
+     appId: "1:21876934485:web:190db6148cda43b01311dc",
+     measurementId: "G-8GH7C4NLC6"
+   };
    ```
-
 ---
 
 ## 📲 Bước 4: Dán Vào Website Để Kích Hoạt

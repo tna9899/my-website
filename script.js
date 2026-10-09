@@ -1915,7 +1915,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const currentCfg = localStorage.getItem('weddingFirebaseConfig');
             if (currentCfg) {
-                inputFirebaseConfig.value = currentCfg;
+                try {
+                    inputFirebaseConfig.value = JSON.stringify(JSON.parse(currentCfg), null, 2);
+                } catch (e) {
+                    inputFirebaseConfig.value = currentCfg;
+                }
             }
         } catch (e) {}
     }
@@ -1928,22 +1932,73 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            if (typeof window.saveFirebaseConfig === 'function') {
-                const res = window.saveFirebaseConfig(rawVal);
-                if (res.success) {
-                    if (firebaseSyncStatusMsg) {
-                        firebaseSyncStatusMsg.textContent = '✅ Đã lưu cấu hình Firebase! Đang tải lại trang...';
-                        firebaseSyncStatusMsg.className = 'text-[11px] text-emerald-600 font-bold';
-                    }
-                    alert('✅ Đã lưu cấu hình Firebase thành công! Trang web sẽ tải lại để kích hoạt kết nối thời gian thực.');
-                    setTimeout(() => window.location.reload(), 500);
-                } else {
-                    if (firebaseSyncStatusMsg) {
-                        firebaseSyncStatusMsg.textContent = '⚠️ ' + res.message;
-                        firebaseSyncStatusMsg.className = 'text-[11px] text-rose-500 font-bold';
-                    }
-                    alert('⚠️ Lỗi cấu hình: ' + res.message);
+            // Parser đa tầng an toàn độc lập (phòng trường hợp trình duyệt lưu cache firebase-config.js cũ)
+            const parseAndSaveConfig = (input) => {
+                // Thử hàm toàn cục nếu có và hoạt động tốt
+                if (typeof window.saveFirebaseConfig === 'function') {
+                    const res = window.saveFirebaseConfig(input);
+                    if (res && res.success) return res;
                 }
+                
+                // Fallback độc lập nếu window.saveFirebaseConfig bị cache phiên bản cũ
+                try {
+                    let str = String(input || '').trim();
+                    if (str.includes('{') && str.includes('}')) {
+                        const start = str.indexOf('{');
+                        const end = str.lastIndexOf('}');
+                        str = str.substring(start, end + 1);
+                    }
+                    let obj = null;
+                    try { obj = JSON.parse(str); } catch (e) {}
+                    if (!obj) {
+                        try {
+                            const fn = new Function('return (' + str + ');');
+                            const ev = fn();
+                            if (ev && typeof ev === 'object' && !Array.isArray(ev)) obj = ev;
+                        } catch (e) {}
+                    }
+                    if (!obj || !obj.apiKey || !obj.projectId) {
+                        const fields = {};
+                        const known = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'storageBucket', 'messagingSenderId', 'appId', 'measurementId'];
+                        for (const k of known) {
+                            const reg = new RegExp(`['"]?${k}['"]?\\s*:\\s*['"\`]?([^'",\`\\r\\n}]+)['"\`]?`, 'i');
+                            const m = String(input || '').match(reg);
+                            if (m && m[1]) fields[k] = m[1].trim();
+                        }
+                        if (fields.apiKey && fields.projectId) obj = fields;
+                    }
+
+                    if (!obj || !obj.apiKey || !obj.projectId) {
+                        return { success: false, message: 'Cấu hình Firebase không hợp lệ hoặc thiếu "apiKey" / "projectId"!' };
+                    }
+
+                    const cleanObj = {};
+                    for (const [k, v] of Object.entries(obj)) {
+                        cleanObj[k] = String(v !== undefined && v !== null ? v : '').trim();
+                    }
+                    localStorage.setItem('weddingFirebaseConfig', JSON.stringify(cleanObj, null, 2));
+                    window.firebaseConfig = cleanObj;
+                    window.isFirebaseConfigured = true;
+                    return { success: true, message: 'Đã lưu cấu hình Firebase thành công!' };
+                } catch (err) {
+                    return { success: false, message: err.message };
+                }
+            };
+
+            const res = parseAndSaveConfig(rawVal);
+            if (res.success) {
+                if (firebaseSyncStatusMsg) {
+                    firebaseSyncStatusMsg.textContent = '✅ Đã lưu cấu hình Firebase! Đang tải lại trang...';
+                    firebaseSyncStatusMsg.className = 'text-[11px] text-emerald-600 font-bold';
+                }
+                alert('✅ Đã lưu cấu hình Firebase thành công! Trang web sẽ tải lại để kích hoạt kết nối thời gian thực.');
+                setTimeout(() => window.location.reload(), 500);
+            } else {
+                if (firebaseSyncStatusMsg) {
+                    firebaseSyncStatusMsg.textContent = '⚠️ ' + res.message;
+                    firebaseSyncStatusMsg.className = 'text-[11px] text-rose-500 font-bold';
+                }
+                alert('⚠️ Lỗi cấu hình: ' + res.message);
             }
         });
     }
