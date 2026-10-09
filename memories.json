@@ -8,36 +8,5 @@
       "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791561852480_0_7y4ny_N7eLeYK1W.jpg"
     ],
     "location": "Hải Phòng"
-  },
-  {
-    "id": "1791213345982",
-    "images": [
-      "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791213343114_0_082kd_cquCZ0J0l.jpg"
-    ],
-    "content": "Hp",
-    "location": "Hải Phòng",
-    "date": "2026-10-01",
-    "createdAt": "2026-10-05T15:15:45.982Z"
-  },
-  {
-    "id": "1791129587997",
-    "images": [
-      "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791129576176_0_n7erx_Mt4nPPB4E.jpg",
-      "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791129582850_1_sbbr4_5TOA0lOee.jpg"
-    ],
-    "content": "Hải Phòng",
-    "location": "Hải Phòng",
-    "date": "2026-10-01",
-    "createdAt": "2026-10-04T15:59:47.997Z"
-  },
-  {
-    "id": "1791217971583",
-    "images": [
-      "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791217968851_0_mdm24_lQBBI111v.jpg"
-    ],
-    "content": "<3",
-    "location": "Hải Phòng",
-    "date": "2026-09-10",
-    "createdAt": "2026-10-05T16:32:51.583Z"
   }
 ]
