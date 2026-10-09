@@ -580,6 +580,37 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
 
+        // Tự động xóa vĩnh viễn các ảnh trên ImageKit khi xóa kỷ niệm
+        async deleteFromImageKit(urls) {
+            if (!urls) return false;
+            const urlList = (Array.isArray(urls) ? urls : [urls]).filter(u => 
+                u && typeof u === 'string' && u.includes('ik.imagekit.io')
+            );
+            if (!urlList.length) return false;
+
+            console.log('[ImageKit Delete] Đang gửi yêu cầu xóa các ảnh khỏi ImageKit:', urlList);
+
+            // 1. Thử gửi yêu cầu xóa tới máy chủ qua endpoints (/api/imagekit/delete)
+            const endpoints = this.getEndpoints('/api/imagekit/delete');
+            let success = false;
+            for (const ep of endpoints) {
+                try {
+                    const resp = await fetch(ep, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json;charset=utf-8' },
+                        body: JSON.stringify({ urls: urlList }),
+                        mode: 'cors'
+                    });
+                    if (resp.ok) {
+                        success = true;
+                        Logger.log('IMAGEKIT_DELETE_SUCCESS', `Đã xóa ${urlList.length} ảnh trên ImageKit qua server`);
+                        break;
+                    }
+                } catch (e) {}
+            }
+            return success;
+        },
+
         async syncToGitHub(memories) {
             const token = typeof window.getGitHubSyncToken === 'function' ? window.getGitHubSyncToken() : '';
             if (!token) return false;
@@ -1040,6 +1071,17 @@ document.addEventListener('DOMContentLoaded', () => {
             this.addDeletedId(idStr);
 
             let list = this.getAll();
+            const memoryToDelete = list.find(m => String(m.id) === idStr);
+
+            // Tự động xóa vĩnh viễn các ảnh ImageKit của kỷ niệm này
+            if (memoryToDelete) {
+                const imgs = Array.isArray(memoryToDelete.images) ? memoryToDelete.images : (memoryToDelete.image ? [memoryToDelete.image] : []);
+                const ikUrls = imgs.filter(u => typeof u === 'string' && u.includes('ik.imagekit.io'));
+                if (ikUrls.length > 0) {
+                    this.deleteFromImageKit(ikUrls).catch(() => {});
+                }
+            }
+
             list = list.filter(m => String(m.id) !== idStr);
             this._cache = list;
 
@@ -4770,6 +4812,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const memories = MemoryStore.getAll();
                 const target = memories.find(m => String(m.id) === String(this.currentMemoryId));
                 if (target) {
+                    // Tự động xóa vĩnh viễn các ảnh ImageKit đã bị người dùng gỡ khỏi album
+                    const oldImgs = Array.isArray(target.images) ? target.images : (target.image ? [target.image] : []);
+                    const removedIkUrls = oldImgs.filter(oldUrl => 
+                        typeof oldUrl === 'string' && 
+                        oldUrl.includes('ik.imagekit.io') && 
+                        !finalImages.includes(oldUrl)
+                    );
+                    if (removedIkUrls.length > 0) {
+                        MemoryStore.deleteFromImageKit(removedIkUrls).catch(() => {});
+                    }
+
                     target.content = content;
                     target.date = date;
                     target.location = location;

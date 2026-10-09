@@ -162,6 +162,43 @@ function Save-Base64ToUploads($b64String, $prefixId, $idx) {
     }
 }
 
+# Ham ho tro xoa anh tren ImageKit.io
+function Delete-ImageKitFile($imageUrlOrName) {
+    if (-not $imageUrlOrName -or -not ($imageUrlOrName -is [string])) { return $false }
+    try {
+        $fileName = ($imageUrlOrName -split '/')[-1] -split '\?' | Select-Object -First 1
+        if (-not $fileName -or $fileName.Length -lt 3) { return $false }
+
+        $ikFile = Join-Path $folder "imagekit-config.js"
+        $privateKey = ""
+        if (Test-Path $ikFile) {
+            $ikContent = [System.IO.File]::ReadAllText($ikFile, [System.Text.Encoding]::UTF8)
+            if ($ikContent -match 'privateKey:\s*["'']([^"'']+)["'']') {
+                $privateKey = $matches[1]
+            }
+        }
+        if (-not $privateKey) { return $false }
+
+        $base64Auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${privateKey}:"))
+        $headers = @{ "Authorization" = "Basic $base64Auth" }
+
+        # Tim fileId theo ten file trong thu muc /anhuyen_memories
+        $searchUrl = "https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=" + [System.Uri]::EscapeDataString("name=""$fileName""")
+        $searchResp = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 5 -ErrorAction SilentlyContinue
+        if ($searchResp -and $searchResp.Count -gt 0) {
+            foreach ($f in $searchResp) {
+                if ($f.fileId) {
+                    $delUrl = "https://api.imagekit.io/v1/files/$($f.fileId)"
+                    Invoke-RestMethod -Uri $delUrl -Headers $headers -Method Delete -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "[ImageKit] Da xoa anh: $($f.name) (ID: $($f.fileId))" -ForegroundColor Yellow
+                }
+            }
+            return $true
+        }
+    } catch {}
+    return $false
+}
+
 while ($listener.IsListening) {
     try {
         $context = $listener.GetContext()
@@ -295,6 +332,36 @@ while ($listener.IsListening) {
             }
         }
 
+        # 3.1. API XOA ANH IMAGEKIT (/api/imagekit/delete)
+        if ($request.Url.AbsolutePath -eq "/api/imagekit/delete" -and $request.HttpMethod -eq "POST") {
+            $reader = New-Object System.IO.StreamReader($request.InputStream, [System.Text.Encoding]::UTF8)
+            $ikDelBody = $reader.ReadToEnd()
+            $reader.Close()
+            $results = @()
+            if ($ikDelBody) {
+                try {
+                    $ikPayload = ConvertFrom-Json $ikDelBody -ErrorAction SilentlyContinue
+                    $urlsToDel = @()
+                    if ($ikPayload.urls -is [System.Array]) { $urlsToDel = $ikPayload.urls }
+                    elseif ($ikPayload.urls) { $urlsToDel = @($ikPayload.urls) }
+                    elseif ($ikPayload.url) { $urlsToDel = @($ikPayload.url) }
+
+                    foreach ($u in $urlsToDel) {
+                        $didDel = Delete-ImageKitFile $u
+                        $results += [PSCustomObject]@{ url = $u; deleted = $didDel }
+                    }
+                } catch {}
+            }
+            $response.StatusCode = 200
+            $resJson = ConvertTo-Json -InputObject ([PSCustomObject]@{ status = "ok"; results = $results }) -Compress
+            $ikDelBuf = [System.Text.Encoding]::UTF8.GetBytes($resJson)
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.ContentLength64 = $ikDelBuf.Length
+            $response.OutputStream.Write($ikDelBuf, 0, $ikDelBuf.Length)
+            $response.Close()
+            continue
+        }
+
         # 4. API KY NIEM (DONG BO 2 CHIEU THONG MINH DIEN THOAI & MAY TINH)
         if ($request.Url.AbsolutePath -eq "/api/memories") {
             if ($request.HttpMethod -eq "GET") {
@@ -404,6 +471,25 @@ while ($listener.IsListening) {
                     if ($allDeleted.Count -gt 0) {
                         $delJson = ConvertTo-Json -InputObject $allDeleted -Compress
                         [System.IO.File]::WriteAllText($deletedIdsFile, $delJson, [System.Text.Encoding]::UTF8)
+
+                        # Tu dong xoa cac anh tren ImageKit cua cac ky niem bi xoa
+                        if ($deletedIds.Count -gt 0) {
+                            foreach ($dId in $deletedIds) {
+                                $delMem = $currentMemories | Where-Object { [string]$_.id -eq [string]$dId } | Select-Object -First 1
+                                if ($delMem) {
+                                    $imgsToDel = @()
+                                    if ($delMem.images -is [System.Array]) { $imgsToDel = $delMem.images }
+                                    elseif ($delMem.images) { $imgsToDel = @($delMem.images) }
+                                    elseif ($delMem.image) { $imgsToDel = @($delMem.image) }
+
+                                    foreach ($imgUrl in $imgsToDel) {
+                                        if ($imgUrl -and $imgUrl.Contains("ik.imagekit.io")) {
+                                            Delete-ImageKitFile $imgUrl | Out-Null
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     # Bang tra cuu memories theo ID dung Hashtable tuyet doi khong loi

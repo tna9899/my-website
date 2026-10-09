@@ -1,0 +1,27 @@
+name: Tự Động Xóa Ảnh ImageKit Khi Xóa Kỷ Niệm
+
+on:
+  push:
+    paths:
+      - 'memories.json'
+    branches:
+      - main
+  workflow_dispatch:
+  schedule:
+    # Dọn dẹp định kỳ mỗi ngày một lần (0h UTC)
+    - cron: '0 0 * * *'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tải mã nguồn repository
+        uses: actions/checkout@v4
+
+      - name: Cài đặt Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Dọn dẹp và xóa vĩnh viễn các ảnh không còn dùng trên ImageKit
+        run: node scripts/cleanup-imagekit.js

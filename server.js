@@ -120,6 +120,55 @@ function saveBase64ToUploads(b64String, prefixId, idx) {
     }
 }
 
+// Ham ho tro xoa anh tren ImageKit.io
+function getImageKitPrivateKey() {
+    try {
+        const ikConfigPath = path.join(ROOT_DIR, 'imagekit-config.js');
+        if (fs.existsSync(ikConfigPath)) {
+            const content = fs.readFileSync(ikConfigPath, 'utf8');
+            const match = content.match(/privateKey:\s*["']([^"']+)["']/);
+            if (match && match[1] && !match[1].includes('YOUR_')) return match[1];
+        }
+    } catch (e) {}
+    return process.env.IMAGEKIT_PRIVATE_KEY || '';
+}
+
+async function deleteImageFromImageKit(urlOrName) {
+    const privateKey = getImageKitPrivateKey();
+    if (!privateKey) return false;
+
+    try {
+        const fileName = String(urlOrName || '').split('/').pop().split('?')[0];
+        if (!fileName || fileName.length < 3) return false;
+
+        const authHeader = 'Basic ' + Buffer.from(privateKey + ':').toString('base64');
+
+        // Tìm fileId theo tên file trong folder /anhuyen_memories
+        const searchUrl = `https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=${encodeURIComponent(`name="${fileName}"`)}`;
+        const searchResp = await fetch(searchUrl, {
+            headers: { 'Authorization': authHeader }
+        });
+        if (!searchResp.ok) return false;
+
+        const files = await searchResp.json();
+        if (!Array.isArray(files) || files.length === 0) return false;
+
+        for (const file of files) {
+            if (file && file.fileId) {
+                const delResp = await fetch(`https://api.imagekit.io/v1/files/${file.fileId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': authHeader }
+                });
+                console.log(`[ImageKit] Đã xóa ảnh: ${file.name} (ID: ${file.fileId}) - Status: ${delResp.status}`);
+            }
+        }
+        return true;
+    } catch (err) {
+        console.error('[ImageKit] Lỗi khi xóa ảnh:', err.message);
+        return false;
+    }
+}
+
 // MIME Types tuong thich web tieu chuan (bao gom ca Apple HEIC, HEIF, WebP, AVIF)
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
@@ -230,6 +279,26 @@ const server = http.createServer(async (req, res) => {
     }
 
     // =========================================================================
+    // 3.1. API XOA ANH IMAGEKIT (/api/imagekit/delete)
+    // =========================================================================
+    if (pathname === '/api/imagekit/delete' && req.method === 'POST') {
+        try {
+            const bodyStr = await readRequestBody(req);
+            const payload = JSON.parse(bodyStr || '{}');
+            const urls = Array.isArray(payload.urls) ? payload.urls : (payload.url ? [payload.url] : []);
+            const results = [];
+            for (const u of urls) {
+                const deleted = await deleteImageFromImageKit(u);
+                results.push({ url: u, deleted });
+            }
+            sendJSON(res, 200, { status: 'ok', results });
+        } catch (err) {
+            sendJSON(res, 500, { status: 'error', message: err.message });
+        }
+        return;
+    }
+
+    // =========================================================================
     // 4. API DONG BO KY NIEM 2 CHIEU THOI GIAN THUC (/api/memories)
     // =========================================================================
     if (pathname === '/api/memories') {
@@ -275,15 +344,27 @@ const server = http.createServer(async (req, res) => {
                     incomingMemories = incomingData;
                 }
 
+                // Doc du lieu hien co tren may chu de tim anh can xoa
+                const currentMemories = readMemoriesFromDisk();
+
                 // Doc danh sach ID da xoa tren server va merge voi deletedIds moi
                 const storedDeletedIds = readDeletedIdsFromDisk();
                 const allDeletedIds = Array.from(new Set([...storedDeletedIds, ...incomingDeletedIds]));
                 if (incomingDeletedIds.length > 0) {
                     saveDeletedIdsToDisk(allDeletedIds);
+                    // Tu dong xoa cac anh tren ImageKit thuoc cac ky niem da bi xoa
+                    for (const dId of incomingDeletedIds) {
+                        const deletedMem = currentMemories.find(m => String(m.id) === String(dId));
+                        if (deletedMem) {
+                            const imgs = Array.isArray(deletedMem.images) ? deletedMem.images : (deletedMem.image ? [deletedMem.image] : []);
+                            for (const img of imgs) {
+                                if (img && typeof img === 'string' && img.includes('ik.imagekit.io')) {
+                                    deleteImageFromImageKit(img).catch(() => {});
+                                }
+                            }
+                        }
+                    }
                 }
-
-                // Doc du lieu hien co tren may chu
-                const currentMemories = readMemoriesFromDisk();
 
                 // Sao luu du phong truoc khi ghi de
                 try {
