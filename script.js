@@ -455,6 +455,25 @@ document.addEventListener('DOMContentLoaded', () => {
             try { localStorage.setItem(this.deletedStorageKey, JSON.stringify(remaining)); } catch (e) {}
         },
 
+        // Áp dụng ngay lập tức danh sách kỷ niệm đã bị xóa từ thiết bị khác và vẽ lại màn hình
+        _applyDeletionsAndRerender() {
+            const deletedIds = this.getDeletedIds();
+            if (!deletedIds || !deletedIds.length) return;
+
+            let list = this.getAll();
+            const originalCount = list.length;
+            list = list.filter(m => m && m.id && !deletedIds.includes(String(m.id)));
+
+            if (list.length !== originalCount) {
+                this._cache = list;
+                try { localStorage.setItem(this.storageKey, JSON.stringify(list)); } catch (e) {}
+                try { if (typeof IDBStorage !== 'undefined') IDBStorage.saveAll(list); } catch (e) {}
+                if (typeof renderMemories === 'function') renderMemories();
+                if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                console.log(`⚡ [Realtime Delete] Đã xóa ${originalCount - list.length} kỷ niệm theo cập nhật tức thì từ thiết bị khác.`);
+            }
+        },
+
         getAll() {
             let list = this._cache;
             if (list === null) {
@@ -513,8 +532,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 await IDBStorage.saveAll(memories);
             } catch (e) {}
 
-            // 3. Đồng bộ lên Server nội bộ
+            // 3. Đồng bộ lên Server nội bộ & Cloud
             const syncResult = await this.syncToServer(memories);
+            if (syncResult) {
+                let changed = false;
+                for (const m of (memories || [])) {
+                    if (m && m._isPendingSync) {
+                        delete m._isPendingSync;
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    try { localStorage.setItem(this.storageKey, JSON.stringify(memories)); } catch (e) {}
+                }
+            }
             return syncResult;
         },
 
@@ -685,7 +716,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     date: m.date || '',
                     createdAt: m.createdAt || new Date().toISOString()
                 }));
+                // 1. Đồng bộ danh sách kỷ niệm
                 await window.firebaseDB.ref('memories').set(cleanList);
+                // 2. Đồng bộ danh sách ID đã xóa thời gian thực
+                const deletedIds = this.getDeletedIds();
+                await window.firebaseDB.ref('deletedIds').set(deletedIds);
+
                 Logger.log('FIREBASE_SYNC_SUCCESS', `Đã đồng bộ ${cleanList.length} kỷ niệm lên Firebase Realtime Database`);
                 return true;
             } catch (err) {
@@ -698,7 +734,32 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!window.isFirebaseConfigured || !window.firebaseDB) return false;
             try {
                 const memRef = window.firebaseDB.ref('memories');
-                // Lắng nghe WebSocket thời gian thực: Mọi thay đổi từ bất kỳ máy nào đều nhận tức thì (<0.1s)
+                const delRef = window.firebaseDB.ref('deletedIds');
+
+                // 1. Lắng nghe danh sách ID đã xóa thời gian thực từ các thiết bị khác (<0.1s)
+                delRef.on('value', (snap) => {
+                    const remoteDel = snap.val();
+                    let delList = [];
+                    if (Array.isArray(remoteDel)) delList = remoteDel;
+                    else if (remoteDel && typeof remoteDel === 'object') delList = Object.values(remoteDel);
+
+                    if (delList && delList.length > 0) {
+                        let hasNew = false;
+                        const currentDel = this.getDeletedIds();
+                        for (const dId of delList) {
+                            const str = String(dId);
+                            if (str && !currentDel.includes(str)) {
+                                this.addDeletedId(str);
+                                hasNew = true;
+                            }
+                        }
+                        if (hasNew) {
+                            this._applyDeletionsAndRerender();
+                        }
+                    }
+                });
+
+                // 2. Lắng nghe WebSocket thời gian thực: Mọi thay đổi từ bất kỳ máy nào đều nhận tức thì (<0.1s)
                 memRef.on('value', async (snapshot) => {
                     const val = snapshot.val();
                     let remoteList = [];
@@ -716,8 +777,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof renderMemories === 'function') renderMemories();
                         if (typeof renderVietnamMap === 'function') renderVietnamMap();
                         updateSyncStatusUI('synced');
+                    } else if (Array.isArray(val) && val.length === 0) {
+                        this._cache = [];
+                        try { localStorage.setItem(this.storageKey, '[]'); } catch (e) {}
+                        if (typeof renderMemories === 'function') renderMemories();
+                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
                     } else {
-                        // Tự động chuyển 5 album kỷ niệm ban đầu lên Firebase nếu DB mới tạo còn trống
+                        // Tự động chuyển album kỷ niệm ban đầu lên Firebase nếu DB mới tạo còn trống
                         const local = this.getAll();
                         if (local && local.length > 0) {
                             await memRef.set(local);
@@ -820,8 +886,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (cloudData && Array.isArray(cloudData.memories)) {
                         cloudMemories = cloudData.memories;
                         if (Array.isArray(cloudData.deletedIds)) {
+                            let hasNewDeletions = false;
+                            const currentDel = this.getDeletedIds();
                             for (const dId of cloudData.deletedIds) {
-                                this.addDeletedId(String(dId));
+                                const idStr = String(dId);
+                                if (!currentDel.includes(idStr)) {
+                                    this.addDeletedId(idStr);
+                                    hasNewDeletions = true;
+                                }
+                            }
+                            if (hasNewDeletions) {
+                                this._applyDeletionsAndRerender();
                             }
                         }
                     }
@@ -865,6 +940,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (resp.ok) {
                         const data = await resp.json();
                         const serverMemories = Array.isArray(data) ? data : (data.memories || []);
+                        if (data && Array.isArray(data.deletedIds)) {
+                            let hasNewDeletions = false;
+                            const currentDel = this.getDeletedIds();
+                            for (const dId of data.deletedIds) {
+                                const idStr = String(dId);
+                                if (!currentDel.includes(idStr)) {
+                                    this.addDeletedId(idStr);
+                                    hasNewDeletions = true;
+                                }
+                            }
+                            if (hasNewDeletions) {
+                                this._applyDeletionsAndRerender();
+                            }
+                        }
                         if (Array.isArray(serverMemories) && serverMemories.length > 0) {
                             allRemoteMemories.push(...serverMemories);
                             break;
@@ -953,9 +1042,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (deletedIds.includes(idStr)) continue;
 
                 if (!map.has(idStr)) {
-                    // Kỷ niệm mới có ở local (vừa đăng trên thiết bị này chưa đẩy lên cloud)
-                    const cleanImgs = sanitizeImages(localItem.images || localItem.image);
-                    map.set(idStr, { ...localItem, images: cleanImgs });
+                    // CHỈ giữ lại nếu kỷ niệm này vừa được tạo trên thiết bị này và đang chờ đồng bộ (_isPendingSync)
+                    // Tuyệt đối không phục hồi những kỷ niệm đã có từ trước nhưng đã bị thiết bị khác xóa trên cloud
+                    if (localItem._isPendingSync) {
+                        const cleanImgs = sanitizeImages(localItem.images || localItem.image);
+                        map.set(idStr, { ...localItem, images: cleanImgs });
+                    }
                 } else {
                     // Kỷ niệm có ở cả 2: gộp danh sách ảnh để không bao giờ bị mất ảnh
                     const existing = map.get(idStr);
@@ -1049,6 +1141,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return false;
             }
 
+            item._isPendingSync = true;
             const list = this.getAll();
             list.unshift(item);
             const success = await this.saveAll(list);
