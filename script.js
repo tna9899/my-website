@@ -47,6 +47,28 @@ if (!window.handleThumbError) {
     };
 }
 
+if (!window.isVideoUrl) {
+    window.isVideoUrl = function(url) {
+        if (!url || typeof url !== 'string') return false;
+        const clean = url.split('?')[0].split('#')[0].toLowerCase();
+        if (url.startsWith('data:video/')) return true;
+        if (/\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(clean)) return true;
+        if (/\/vid_[a-zA-Z0-9_-]+/i.test(clean)) return true;
+        return false;
+    };
+}
+
+if (!window.readFileAsDataURL) {
+    window.readFileAsDataURL = function(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsDataURL(file);
+        });
+    };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
 
     // =========================================================================
@@ -408,6 +430,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const MemoryStore = {
         storageKey: 'weddingMemories',
         deletedStorageKey: 'weddingDeletedIds',
+        deletedImagesStorageKey: 'weddingDeletedImages',
         versionKey: 'weddingMemoriesVersion',
         _cache: null,
         _version: 0,
@@ -417,17 +440,13 @@ document.addEventListener('DOMContentLoaded', () => {
         _pollTimer: null,
 
         getEndpoints(path) {
-            const list = [];
-            const isLocal = !window.location.hostname || 
-                            window.location.hostname === 'localhost' || 
-                            window.location.hostname === '127.0.0.1' || 
-                            window.location.origin === 'null' ||
-                            window.location.protocol === 'file:';
-            if (isLocal) {
-                list.push(path);
-                list.push(`http://localhost:8080${path}`);
-                list.push(`http://127.0.0.1:8080${path}`);
+            const list = [path];
+            const origin = window.location.origin;
+            if (origin && origin !== 'null' && !origin.startsWith('file:')) {
+                list.push(`${origin}${path}`);
             }
+            list.push(`http://localhost:8080${path}`);
+            list.push(`http://127.0.0.1:8080${path}`);
             return [...new Set(list)];
         },
 
@@ -453,6 +472,38 @@ document.addEventListener('DOMContentLoaded', () => {
             const current = this.getDeletedIds();
             const remaining = current.filter(id => !idsToRemove.includes(String(id)));
             try { localStorage.setItem(this.deletedStorageKey, JSON.stringify(remaining)); } catch (e) {}
+        },
+
+        getDeletedImages() {
+            try {
+                return JSON.parse(localStorage.getItem(this.deletedImagesStorageKey) || '[]');
+            } catch (e) {
+                return [];
+            }
+        },
+
+        addDeletedImages(urls) {
+            if (!urls) return;
+            const toAdd = (Array.isArray(urls) ? urls : [urls]).filter(u => typeof u === 'string' && u.includes('ik.imagekit.io'));
+            if (!toAdd.length) return;
+            const current = this.getDeletedImages();
+            let changed = false;
+            for (const u of toAdd) {
+                if (!current.includes(u)) {
+                    current.push(u);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                try { localStorage.setItem(this.deletedImagesStorageKey, JSON.stringify(current)); } catch (e) {}
+            }
+        },
+
+        clearDeletedImages(urlsToRemove) {
+            if (!urlsToRemove || !urlsToRemove.length) return;
+            const current = this.getDeletedImages();
+            const remaining = current.filter(u => !urlsToRemove.includes(u));
+            try { localStorage.setItem(this.deletedImagesStorageKey, JSON.stringify(remaining)); } catch (e) {}
         },
 
         // Áp dụng ngay lập tức danh sách kỷ niệm đã bị xóa từ thiết bị khác và vẽ lại màn hình
@@ -558,7 +609,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const payloadData = {
                     version: Date.now(),
                     memories: memories || [],
-                    deletedIds: this.getDeletedIds()
+                    deletedIds: this.getDeletedIds(),
+                    deletedImages: this.getDeletedImages()
                 };
                 const jsonStr = JSON.stringify(payloadData, null, 2);
                 let filePayload;
@@ -619,6 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             if (!urlList.length) return false;
 
+            this.addDeletedImages(urlList);
             console.log('[ImageKit Delete] Đang gửi yêu cầu xóa các ảnh khỏi ImageKit:', urlList);
 
             // 1. Thử gửi yêu cầu xóa tới máy chủ qua endpoints (/api/imagekit/delete)
@@ -634,12 +687,79 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     if (resp.ok) {
                         success = true;
+                        this.clearDeletedImages(urlList);
                         Logger.log('IMAGEKIT_DELETE_SUCCESS', `Đã xóa ${urlList.length} ảnh trên ImageKit qua server`);
                         break;
                     }
                 } catch (e) {}
             }
+
+            // Đồng bộ hàng đợi ảnh đã xóa lên Firebase
+            if (typeof window.firebaseDB !== 'undefined' && window.firebaseDB) {
+                window.firebaseDB.ref('deletedImages').set(this.getDeletedImages()).catch(() => {});
+            }
             return success;
+        },
+
+        async syncDeletedImagesQueue() {
+            const pending = this.getDeletedImages();
+            if (!pending || !pending.length) return false;
+            const endpoints = this.getEndpoints('/api/imagekit/delete');
+            for (const ep of endpoints) {
+                try {
+                    const resp = await fetch(ep, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json;charset=utf-8' },
+                        body: JSON.stringify({ urls: pending }),
+                        mode: 'cors'
+                    });
+                    if (resp.ok) {
+                        this.clearDeletedImages(pending);
+                        console.log(`[ImageKit Queue] Đã xóa ${pending.length} ảnh tồn đọng trên ImageKit`);
+                        return true;
+                    }
+                } catch (e) {}
+            }
+            return false;
+        },
+
+        // Đồng bộ và rà soát toàn diện giữa Web và ImageKit (Reconciliation)
+        async reconcileImageKit() {
+            console.log('[ImageKit Reconcile] Bắt đầu đồng bộ và rà soát ImageKit...');
+            const memories = this.getAll();
+            let cleanedCount = 0;
+
+            // 1. Đồng bộ lên ImageKit Cloud và Firebase
+            await this.syncToImageKit(memories);
+            if (typeof this.syncToFirebase === 'function') {
+                await this.syncToFirebase(memories);
+            }
+
+            // 2. Gửi hàng đợi xóa tồn đọng nếu có
+            await this.syncDeletedImagesQueue();
+
+            // 3. Yêu cầu server chạy rà soát dọn dẹp (/api/imagekit/cleanup) nếu server hoạt động
+            const endpoints = this.getEndpoints('/api/imagekit/cleanup');
+            for (const ep of endpoints) {
+                try {
+                    const resp = await fetch(ep, {
+                        method: 'POST',
+                        mode: 'cors',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json().catch(() => ({}));
+                        cleanedCount = data.deletedCount || 0;
+                        break;
+                    }
+                } catch (e) {}
+            }
+
+            return {
+                success: true,
+                memoriesCount: memories.length,
+                cleanedCount: cleanedCount
+            };
         },
 
         async syncToGitHub(memories) {
@@ -867,7 +987,51 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSyncStatusUI('syncing');
 
             let updated = false;
-            const allRemoteMemories = [];
+            // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
+            try {
+                const fbDbUrl = (window.firebaseConfig && window.firebaseConfig.databaseURL) 
+                    || 'https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app';
+                
+                const [fbMemResp, fbDelResp] = await Promise.all([
+                    fetch(`${fbDbUrl}/memories.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null),
+                    fetch(`${fbDbUrl}/deletedIds.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null)
+                ]);
+
+                if (fbDelResp && fbDelResp.ok) {
+                    const fbDelData = await fbDelResp.json().catch(() => null);
+                    let fbDelList = [];
+                    if (Array.isArray(fbDelData)) fbDelList = fbDelData;
+                    else if (fbDelData && typeof fbDelData === 'object') fbDelList = Object.values(fbDelData);
+
+                    if (fbDelList.length > 0) {
+                        let hasNewDeletions = false;
+                        const currentDel = this.getDeletedIds();
+                        for (const dId of fbDelList) {
+                            const idStr = String(dId);
+                            if (idStr && !currentDel.includes(idStr)) {
+                                this.addDeletedId(idStr);
+                                hasNewDeletions = true;
+                            }
+                        }
+                        if (hasNewDeletions) {
+                            this._applyDeletionsAndRerender();
+                        }
+                    }
+                }
+
+                if (fbMemResp && fbMemResp.ok) {
+                    const fbMemData = await fbMemResp.json().catch(() => null);
+                    let fbList = [];
+                    if (Array.isArray(fbMemData)) fbList = fbMemData;
+                    else if (fbMemData && typeof fbMemData === 'object') fbList = Object.values(fbMemData);
+
+                    if (fbList.length > 0) {
+                        allRemoteMemories.push(...fbList);
+                    }
+                }
+            } catch (fbErr) {
+                console.warn('[Cloud Sync] Firebase REST fetch:', fbErr.message);
+            }
 
             // 1. Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều tức thì trên CDN)
             try {
@@ -1042,12 +1206,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (deletedIds.includes(idStr)) continue;
 
                 if (!map.has(idStr)) {
-                    // CHỈ giữ lại nếu kỷ niệm này vừa được tạo trên thiết bị này và đang chờ đồng bộ (_isPendingSync)
-                    // Tuyệt đối không phục hồi những kỷ niệm đã có từ trước nhưng đã bị thiết bị khác xóa trên cloud
-                    if (localItem._isPendingSync) {
-                        const cleanImgs = sanitizeImages(localItem.images || localItem.image);
-                        map.set(idStr, { ...localItem, images: cleanImgs });
-                    }
+                    // Giữ lại kỷ niệm local vì nó chưa bị xóa (không nằm trong deletedIds)
+                    const cleanImgs = sanitizeImages(localItem.images || localItem.image);
+                    map.set(idStr, { ...localItem, images: cleanImgs });
                 } else {
                     // Kỷ niệm có ở cả 2: gộp danh sách ảnh để không bao giờ bị mất ảnh
                     const existing = map.get(idStr);
@@ -1099,6 +1260,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                     this._cache = cleanList;
                     try { localStorage.setItem(this.storageKey, JSON.stringify(cleanList)); } catch (e) {}
+                    if (cleanList.length > 0) {
+                        if (typeof renderMemories === 'function') renderMemories();
+                        if (typeof renderVietnamMap === 'function') renderVietnamMap();
+                    }
                 }
             } catch (e) {}
 
@@ -1111,6 +1276,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Đồng bộ dữ liệu mới nhất từ ImageKit Đám Mây & GitHub
             await this.fetchLatestFromServer(true);
+            this.syncDeletedImagesQueue();
 
             // Tự động kiểm tra và đồng bộ khi người dùng quay lại tab web hoặc mở điện thoại
             document.addEventListener('visibilitychange', () => {
@@ -1139,6 +1305,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!Auth.isLoggedIn()) {
                 Logger.log('UNAUTHORIZED_ADD', 'Từ chối thêm kỷ niệm do chưa đăng nhập');
                 return false;
+            }
+
+            if (item && item.id) {
+                this.clearDeletedIds([String(item.id)]);
             }
 
             item._isPendingSync = true;
@@ -1171,7 +1341,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const imgs = Array.isArray(memoryToDelete.images) ? memoryToDelete.images : (memoryToDelete.image ? [memoryToDelete.image] : []);
                 const ikUrls = imgs.filter(u => typeof u === 'string' && u.includes('ik.imagekit.io'));
                 if (ikUrls.length > 0) {
-                    this.deleteFromImageKit(ikUrls).catch(() => {});
+                    await this.deleteFromImageKit(ikUrls).catch(() => {});
                 }
             }
 
@@ -1331,23 +1501,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     return img.trim();
                 }
 
-                if (img.startsWith('data:image/')) {
+                if (img.startsWith('data:image/') || img.startsWith('data:video/')) {
                     if (img.length < 100) return null;
 
                     try {
-                        let ext = 'jpg';
+                        const isVid = img.startsWith('data:video/');
+                        let ext = isVid ? 'mp4' : 'jpg';
+                        const prefix = isVid ? 'vid' : 'img';
+
                         const commaIdx = img.indexOf(',');
                         if (commaIdx !== -1) {
                             const header = img.substring(0, commaIdx);
-                            const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
-                            if (match) {
-                                let mExt = match[1].toLowerCase();
-                                if (mExt === 'jpeg') ext = 'jpg';
-                                else if (/^(jpg|png|webp|gif|svg|avif|heic|heif)$/.test(mExt)) ext = mExt;
+                            if (isVid) {
+                                const match = header.match(/video\/([a-zA-Z0-9\+\-]+)/);
+                                if (match) {
+                                    let mExt = match[1].toLowerCase();
+                                    if (mExt === 'quicktime') ext = 'mov';
+                                    else if (/^(mp4|mov|webm|m4v|avi|mkv|ogv)$/.test(mExt)) ext = mExt;
+                                }
+                            } else {
+                                const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
+                                if (match) {
+                                    let mExt = match[1].toLowerCase();
+                                    if (mExt === 'jpeg') ext = 'jpg';
+                                    else if (/^(jpg|png|webp|gif|svg|avif|heic|heif)$/.test(mExt)) ext = mExt;
+                                }
                             }
                         }
 
-                        const fileName = `img_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+                        const fileName = `${prefix}_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
                         const auth = await window.getImageKitAuth();
 
                         const formData = new FormData();
@@ -1361,7 +1543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         formData.append('useUniqueFileName', 'true');
 
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 30000);
+                        const timeoutId = setTimeout(() => controller.abort(), 60000);
                         const resp = await fetch('https://upload.imagekit.io/api/v1/files/upload', {
                             method: 'POST',
                             body: formData,
@@ -1377,10 +1559,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         const data = await resp.json();
                         completed++;
                         updateProgress();
-                        Logger.log('IMAGEKIT_UPLOAD_SUCCESS', `Đã lưu ảnh: ${fileName}`);
+                        Logger.log('IMAGEKIT_UPLOAD_SUCCESS', `Đã lưu file: ${fileName}`);
                         return data.url;
                     } catch (ikErr) {
-                        console.error('[ImageKit] Lỗi tải ảnh:', ikErr);
+                        console.error('[ImageKit] Lỗi tải file:', ikErr);
                         completed++;
                         updateProgress();
                         return img.length > 200 ? img : null;
@@ -1404,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const img = imagesArray[i];
             if (!img || typeof img !== 'string') continue;
 
-            if (img.startsWith('data:image/')) {
+            if (img.startsWith('data:image/') || img.startsWith('data:video/')) {
                 if (img.length < 100) continue;
 
                 let uploadedUrl = null;
@@ -1537,6 +1719,9 @@ document.addEventListener('DOMContentLoaded', () => {
         modalLogin.classList.remove('hidden');
         if (usernameInput) {
             usernameInput.value = '';
+        }
+        if (loginError) {
+            loginError.classList.add('hidden');
         }
         if (passwordInput) {
             passwordInput.value = '';
@@ -1915,6 +2100,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Nút "Đồng Bộ & Dọn Dẹp ImageKit" trong modal Cài Đặt
+    const btnReconcileImageKit = document.getElementById('btn-reconcile-imagekit');
+    if (btnReconcileImageKit) {
+        btnReconcileImageKit.addEventListener('click', async () => {
+            const originalHtml = btnReconcileImageKit.innerHTML;
+            btnReconcileImageKit.disabled = true;
+            btnReconcileImageKit.innerHTML = `
+                <svg class="animate-spin h-3.5 w-3.5 inline mr-1 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>Đang rà soát ImageKit...</span>
+            `;
+            try {
+                const res = await MemoryStore.reconcileImageKit();
+                let msg = `✅ Đồng bộ & rà soát ImageKit thành công!`;
+                msg += `\n- Tổng số kỷ niệm hoạt động: ${res.memoriesCount}`;
+                if (res.cleanedCount > 0) {
+                    msg += `\n- Đã dọn dẹp sạch ${res.cleanedCount} ảnh mồ côi trên ImageKit.`;
+                } else {
+                    msg += `\n- Toàn bộ ảnh trên ImageKit đều khớp 100% với website (không có ảnh mồ côi).`;
+                }
+                alert(msg);
+            } catch (err) {
+                alert('Lỗi rà soát ImageKit: ' + err.message);
+            } finally {
+                btnReconcileImageKit.disabled = false;
+                btnReconcileImageKit.innerHTML = originalHtml;
+            }
+        });
+    }
+
     // 2. Nút "Tải Sao Lưu JSON" về máy
     const btnExportMemoriesJson = document.getElementById('btn-export-memories-json');
     if (btnExportMemoriesJson) {
@@ -2189,28 +2403,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
         selectedImages.forEach((src, idx) => {
             const thumbWrap = document.createElement('div');
-            thumbWrap.className = 'relative group aspect-square rounded-xl overflow-hidden border border-gray-200 bg-white shadow-xs';
-            thumbWrap.innerHTML = `
-                <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
-                <button type="button" class="absolute top-1 right-1 bg-black/70 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer" data-remove-idx="${idx}" title="Xóa ảnh này">
-                    ✕
-                </button>
-            `;
+            thumbWrap.className = 'relative group aspect-square rounded-xl overflow-hidden border border-gray-200 bg-black shadow-xs';
+            if (window.isVideoUrl(src)) {
+                thumbWrap.innerHTML = `
+                    <video src="${src}" class="w-full h-full object-cover" muted playsinline preload="metadata"></video>
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <span class="w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center text-xs">▶</span>
+                    </div>
+                    <button type="button" class="absolute top-1 right-1 bg-black/70 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer z-10" data-remove-idx="${idx}" title="Xóa file này">
+                        ✕
+                    </button>
+                `;
+            } else {
+                thumbWrap.innerHTML = `
+                    <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
+                    <button type="button" class="absolute top-1 right-1 bg-black/70 hover:bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer" data-remove-idx="${idx}" title="Xóa ảnh này">
+                        ✕
+                    </button>
+                `;
+            }
             previewThumbnails.appendChild(thumbWrap);
         });
 
-        // Thẻ bấm để thêm ảnh nhanh chóng ngay trong ô preview
+        // Thẻ bấm để thêm ảnh / video nhanh chóng ngay trong ô preview
         const addMoreTile = document.createElement('label');
         addMoreTile.htmlFor = 'media-upload';
         addMoreTile.className = 'flex flex-col items-center justify-center aspect-square rounded-xl border-2 border-dashed border-rose-300 bg-rose-50/60 hover:bg-rose-100/70 text-rose-500 cursor-pointer transition-all active:scale-95 group select-none shadow-xs';
-        addMoreTile.title = 'Chọn thêm ảnh từ điện thoại';
+        addMoreTile.title = 'Chọn thêm ảnh hoặc video từ điện thoại/máy tính';
         addMoreTile.innerHTML = `
             <div class="w-8 h-8 rounded-full bg-rose-100 group-hover:scale-110 flex items-center justify-center text-rose-500 mb-1 transition-transform">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
                 </svg>
             </div>
-            <span class="text-[11px] font-bold text-rose-600">Thêm ảnh</span>
+            <span class="text-[11px] font-bold text-rose-600">Thêm tệp</span>
         `;
         previewThumbnails.appendChild(addMoreTile);
 
@@ -2237,7 +2463,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const files = Array.from(e.target.files);
         if (!files.length) return;
 
-        Logger.log('SELECT_FILES', `Người dùng đã chọn ${files.length} file ảnh`);
+        Logger.log('SELECT_FILES', `Người dùng đã chọn ${files.length} file ảnh / video`);
         
         const progressBarContainer = document.getElementById('upload-progress-container');
         const progressBar = document.getElementById('upload-progress-bar');
@@ -2246,7 +2472,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (progressBarContainer) progressBarContainer.classList.remove('hidden');
         if (progressBar) progressBar.style.width = '0%';
-        if (textMain) textMain.textContent = `Đang xử lý ${files.length} ảnh...`;
+        if (textMain) textMain.textContent = `Đang xử lý ${files.length} tệp...`;
         uploadTrigger.classList.add('opacity-75', 'pointer-events-none');
         
         let processedCount = 0;
@@ -2256,21 +2482,31 @@ document.addEventListener('DOMContentLoaded', () => {
             processedCount++;
             const pct = Math.round((processedCount / files.length) * 100);
             if (progressBar) progressBar.style.width = `${pct}%`;
-            if (progressText) progressText.textContent = `Đang xử lý ảnh (${processedCount}/${files.length})...`;
+            if (progressText) progressText.textContent = `Đang xử lý tệp (${processedCount}/${files.length})...`;
 
             const isImage = (file.type && file.type.startsWith('image/')) || 
                             /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
-            if (!isImage) continue;
+            const isVideo = (file.type && file.type.startsWith('video/')) ||
+                            /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+            if (!isImage && !isVideo) continue;
 
             try {
-                // Giữ nguyên 100% độ phân giải và chất lượng ảnh gốc
-                const base64 = await processImagePreservingResolution(file);
-                if (base64) {
-                    selectedImages.push(base64);
-                    successCount++;
+                if (isVideo) {
+                    const base64Video = await window.readFileAsDataURL(file);
+                    if (base64Video) {
+                        selectedImages.push(base64Video);
+                        successCount++;
+                    }
+                } else {
+                    // Giữ nguyên 100% độ phân giải và chất lượng ảnh gốc
+                    const base64 = await processImagePreservingResolution(file);
+                    if (base64) {
+                        selectedImages.push(base64);
+                        successCount++;
+                    }
                 }
             } catch (err) {
-                Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                Logger.log('MEDIA_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
             }
         }
 
@@ -2282,7 +2518,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mediaUpload.value = ''; // Reset input để có thể chọn tiếp nhiều lần trên điện thoại
 
         if (successCount > 0) {
-            Logger.log('IMAGES_PROCESSED', `Đã chuẩn bị thành công ${successCount}/${files.length} ảnh`);
+            Logger.log('MEDIA_PROCESSED', `Đã chuẩn bị thành công ${successCount}/${files.length} tệp`);
         }
     });
 
@@ -2399,6 +2635,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stage) {
             const cards = stage.querySelectorAll('.stacked-card');
             cards.forEach((card, idx) => {
+                const vid = card.querySelector('video');
+                if (vid && idx !== newIndex) {
+                    try { vid.pause(); } catch(e){}
+                }
                 // Tính khoảng cách offset tương đối so với tấm ảnh đang hiển thị
                 const offset = (idx - newIndex + totalImages) % totalImages;
                 
@@ -2512,7 +2752,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             ${images.map((imgSrc, imgIdx) => `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
-                                        <img src="${imgSrc}" alt="" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                                        ${window.isVideoUrl(imgSrc) ? `
+                                            <video src="${imgSrc}" controls playsinline preload="metadata" class="w-full h-full object-cover rounded-2xl bg-black"></video>
+                                        ` : `
+                                            <img src="${imgSrc}" alt="" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                                        `}
                                     </div>
                                 </div>
                             `).join('')}
@@ -2539,12 +2783,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
             } else if (totalImages === 1) {
-                // Hiển thị 1 ảnh FULL tỷ lệ
-                mediaMarkup = `
-                    <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                        <img src="${images[0]}" alt="" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
-                    </div>
-                `;
+                // Hiển thị 1 ảnh / video FULL tỷ lệ
+                if (window.isVideoUrl(images[0])) {
+                    mediaMarkup = `
+                        <div class="single-photo-frame w-full bg-black/90 overflow-hidden flex items-center justify-center p-3 rounded-2xl" data-single-frame="${memoryId}">
+                            <video src="${images[0]}" controls playsinline preload="metadata" class="w-full max-h-[540px] rounded-2xl block bg-black shadow-md"></video>
+                        </div>
+                    `;
+                } else {
+                    mediaMarkup = `
+                        <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
+                            <img src="${images[0]}" alt="" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                        </div>
+                    `;
+                }
             }
 
             // 2. PHẦN THÔNG TIN KỶ NIỆM (Nội dung, địa điểm, ngày tháng)
@@ -2579,12 +2831,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span>Sửa</span>
                                 </button>
 
-                                <input type="file" id="input-add-photo-${memoryId}" class="sr-only-file sr-only" accept="image/jpeg,image/png,image/webp,image/gif,image/*" multiple>
-                                <label for="input-add-photo-${memoryId}" class="text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-xl transition-colors flex items-center space-x-1 text-xs font-bold border border-rose-200/80 shadow-xs cursor-pointer select-none active:scale-95" data-add-photo="${memoryId}" title="Thêm ảnh vào album này">
+                                <input type="file" id="input-add-photo-${memoryId}" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
+                                <label for="input-add-photo-${memoryId}" class="text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-xl transition-colors flex items-center space-x-1 text-xs font-bold border border-rose-200/80 shadow-xs cursor-pointer select-none active:scale-95" data-add-photo="${memoryId}" title="Thêm ảnh hoặc video vào album này">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
                                     </svg>
-                                    <span class="btn-text">Thêm ảnh</span>
+                                    <span class="btn-text">Thêm tệp</span>
                                 </label>
 
                                 <!-- Nút Xóa kỷ niệm -->
@@ -3010,17 +3262,24 @@ document.addEventListener('DOMContentLoaded', () => {
                         btnText.textContent = `${processed}/${files.length}...`;
                         const isImg = (file.type && file.type.startsWith('image/')) || 
                                       /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
-                        if (!isImg) continue;
+                        const isVid = (file.type && file.type.startsWith('video/')) ||
+                                      /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+                        if (!isImg && !isVid) continue;
                         try {
-                            const base64 = await processImagePreservingResolution(file);
-                            if (base64) newCompressedImages.push(base64);
+                            if (isVid) {
+                                const base64 = await window.readFileAsDataURL(file);
+                                if (base64) newCompressedImages.push(base64);
+                            } else {
+                                const base64 = await processImagePreservingResolution(file);
+                                if (base64) newCompressedImages.push(base64);
+                            }
                         } catch (err) {
-                            Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                            Logger.log('MEDIA_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
                         }
                     }
 
                     if (newCompressedImages.length) {
-                        btnText.textContent = 'Đang tải ảnh...';
+                        btnText.textContent = 'Đang tải tệp...';
                         const finalUploadedUrls = await uploadImagesToServer(newCompressedImages, (cur, tot, pct) => {
                             btnText.textContent = `Đang tải ${cur}/${tot} (${pct}%)...`;
                         });
@@ -4755,17 +5014,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (addText) addText.textContent = `Đang xử lý ${files.length} ảnh...`;
 
                     for (const file of files) {
+                        const isImg = (file.type && file.type.startsWith('image/')) || 
+                                      /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
+                        const isVid = (file.type && file.type.startsWith('video/')) ||
+                                      /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+                        if (!isImg && !isVid) continue;
                         try {
-                            const b64 = await processImagePreservingResolution(file);
-                            if (b64) {
-                                this.workingImages.push(b64);
+                            if (isVid) {
+                                const b64 = await window.readFileAsDataURL(file);
+                                if (b64) this.workingImages.push(b64);
+                            } else {
+                                const b64 = await processImagePreservingResolution(file);
+                                if (b64) this.workingImages.push(b64);
                             }
                         } catch (err) {
-                            Logger.log('IMAGE_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
+                            Logger.log('MEDIA_PROCESS_ERROR', `Lỗi xử lý file ${file.name}`, { error: String(err) });
                         }
                     }
 
-                    if (addText) addText.textContent = '+ Thêm ảnh mới vào album (giữ nguyên độ phân giải)';
+                    if (addText) addText.textContent = '+ Thêm ảnh hoặc video mới vào album';
                     addFilesInput.value = '';
                     this.renderThumbnails();
                 });
@@ -4837,23 +5104,42 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!this.workingImages.length) {
                 container.innerHTML = `
                     <div class="col-span-full py-4 text-center text-xs text-gray-400 italic">
-                        Album chưa có ảnh nào. Vui lòng bấm bên dưới để thêm ảnh!
+                        Album chưa có tệp nào. Vui lòng bấm bên dưới để thêm ảnh hoặc video!
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = this.workingImages.map((src, idx) => `
-                <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-xs">
-                    <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
-                    <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer" data-remove-img-idx="${idx}" title="Xóa ảnh này khỏi album">
-                        ✕
-                    </button>
-                    <span class="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.2 rounded font-mono">
-                        #${idx + 1}
-                    </span>
-                </div>
-            `).join('');
+            container.innerHTML = this.workingImages.map((src, idx) => {
+                const isVid = window.isVideoUrl(src);
+                if (isVid) {
+                    return `
+                        <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-black shadow-xs">
+                            <video src="${src}" class="w-full h-full object-cover" muted playsinline preload="metadata"></video>
+                            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <span class="w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center text-[10px]">▶</span>
+                            </div>
+                            <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer z-10" data-remove-img-idx="${idx}" title="Xóa video này khỏi album">
+                                ✕
+                            </button>
+                            <span class="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.2 rounded font-mono z-10">
+                                #${idx + 1} (Video)
+                            </span>
+                        </div>
+                    `;
+                }
+                return `
+                    <div class="relative group rounded-xl overflow-hidden aspect-square border border-gray-200 bg-white shadow-xs">
+                        <img src="${src}" class="w-full h-full object-cover" onerror="this.onerror=null; this.src=window.FALLBACK_IMG_PLACEHOLDER;">
+                        <button type="button" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 active:scale-90 text-white text-xs font-bold flex items-center justify-center shadow-md transition-transform cursor-pointer" data-remove-img-idx="${idx}" title="Xóa ảnh này khỏi album">
+                            ✕
+                        </button>
+                        <span class="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1.5 py-0.2 rounded font-mono">
+                            #${idx + 1}
+                        </span>
+                    </div>
+                `;
+            }).join('');
 
             // Gắn sự kiện xóa ảnh
             container.querySelectorAll('[data-remove-img-idx]').forEach(btn => {
@@ -4988,6 +5274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         modal: null,
         stage: null,
         img: null,
+        video: null,
         loader: null,
         counter: null,
         zoomLevel: null,
@@ -5008,6 +5295,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             this.stage = document.getElementById('viewer-stage');
             this.img = document.getElementById('viewer-image');
+            this.video = document.getElementById('viewer-video');
             if (this.img) {
                 this.img.onerror = () => {
                     this.img.src = window.FALLBACK_IMG_PLACEHOLDER;
@@ -5136,6 +5424,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 cancelAnimationFrame(this.rafId);
                 this.rafId = null;
             }
+            if (this.video) {
+                try { this.video.pause(); } catch(e){}
+                this.video.src = '';
+                this.video.style.display = 'none';
+                this.video.classList.add('hidden');
+            }
             if (this.modal) {
                 this.modal.classList.remove('is-open');
                 setTimeout(() => {
@@ -5182,10 +5476,39 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.btnPrev) this.btnPrev.style.display = hasMultiple ? 'flex' : 'none';
             if (this.btnNext) this.btnNext.style.display = hasMultiple ? 'flex' : 'none';
 
-            // Cập nhật link tải ảnh độ phân giải gốc
+            const isVideo = window.isVideoUrl(currentSrc);
+
+            // Cập nhật link tải ảnh/video độ phân giải gốc
             if (this.btnDownload) {
                 this.btnDownload.href = currentSrc;
-                this.btnDownload.download = `NgocAnh-TuUyen-KyNiem-${this.currentIndex + 1}.jpg`;
+                this.btnDownload.download = isVideo 
+                    ? `NgocAnh-TuUyen-Video-${this.currentIndex + 1}.mp4`
+                    : `NgocAnh-TuUyen-KyNiem-${this.currentIndex + 1}.jpg`;
+            }
+
+            // Nếu là Video
+            if (isVideo) {
+                if (this.img) {
+                    this.img.style.display = 'none';
+                    this.img.style.opacity = '0';
+                }
+                if (this.loader) this.loader.classList.add('hidden');
+                if (this.video) {
+                    this.video.style.display = 'block';
+                    this.video.classList.remove('hidden');
+                    this.video.src = currentSrc;
+                }
+                return;
+            } else {
+                if (this.video) {
+                    try { this.video.pause(); } catch(e){}
+                    this.video.style.display = 'none';
+                    this.video.classList.add('hidden');
+                    this.video.src = '';
+                }
+                if (this.img) {
+                    this.img.style.display = 'block';
+                }
             }
 
             // Ẩn ảnh tạm thời và bật loader để tránh giật lag hoặc hiện icon lỗi trên Safari

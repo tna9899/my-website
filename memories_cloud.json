@@ -1,0 +1,39 @@
+{
+  "memories": [
+    {
+      "id": "1791648656311",
+      "images": [
+        "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791648653986_0_mhn0p_974QFF4Ky.jpg",
+        "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791648653986_1_tk9rz_cnGKJdk0l.jpg"
+      ],
+      "content": "",
+      "location": "Hải Phòng",
+      "date": "2026-10-10",
+      "createdAt": "2026-10-10T16:10:56.311Z"
+    },
+    {
+      "id": "1791639621105",
+      "images": [
+        "https://ik.imagekit.io/anhuyen/anhuyen_memories/img_1791639618802_0_hk2gf_9fC_fN8SD.jpg"
+      ],
+      "content": "Sa rang hề",
+      "location": "Hải Phòng",
+      "date": "2026-10-10",
+      "createdAt": "2026-10-10T13:40:21.105Z"
+    }
+  ],
+  "deletedIds": [
+    "1789894268399",
+    "1791128855575",
+    "1791128541144",
+    "1790043870491",
+    "1791213345849",
+    "1791211781180",
+    "1791284882682",
+    "1791213345982",
+    "1791129587997",
+    "1791217971583",
+    "1791561994033",
+    "1791561854586"
+  ]
+}

@@ -77,7 +77,7 @@
             <div class="space-y-4">
                 <div>
                     <label for="username" class="block text-xs font-bold text-gray-700 mb-1">Tài khoản</label>
-                    <input type="text" id="username" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white" placeholder="Nhập tài khoản..." autocomplete="username" value="anhuyen">
+                    <input type="text" id="username" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 outline-none transition-all text-sm bg-white" placeholder="Nhập tài khoản..." autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" value="">
                 </div>
                 <div>
                     <div class="flex items-center justify-between mb-1">
@@ -165,14 +165,14 @@
                         <!-- Render danh sách ảnh bằng JS -->
                     </div>
 
-                    <!-- Nút thêm ảnh mới vào album này -->
+                    <!-- Nút thêm ảnh / video mới vào album này -->
                     <div class="mt-2.5">
-                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif" multiple>
+                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
                         <label for="edit-memory-add-files" class="w-full py-2 px-3 rounded-xl border-2 border-dashed border-rose-200 hover:border-rose-400 hover:bg-rose-50/50 text-rose-600 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                            <span id="edit-memory-add-text">+ Thêm ảnh mới vào album (giữ nguyên độ phân giải)</span>
+                            <span id="edit-memory-add-text">+ Thêm ảnh hoặc video mới vào album</span>
                         </label>
                     </div>
                 </div>
@@ -878,9 +878,9 @@
                         <p class="text-gray-500 text-sm">Bạn có thể chọn một hoặc nhiều ảnh cùng lúc</p>
                     </header>
                     
-                    <!-- Khung Tải Ảnh (Multiple) -->
+                    <!-- Khung Tải Ảnh / Video (Multiple) -->
                     <div class="mb-6">
-                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif" multiple>
+                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
                         <label for="media-upload" id="upload-trigger" class="flex flex-col items-center justify-center w-full py-8 sm:py-10 border-2 border-dashed border-rose-300 rounded-2xl bg-rose-50/40 hover:bg-rose-50/80 active:scale-[0.99] transition-all cursor-pointer group select-none">
                             <div class="w-14 h-14 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform shadow-xs">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -888,27 +888,27 @@
                                 </svg>
                             </div>
                             <span class="text-base font-bold text-rose-600" id="upload-text-main">Chọn Ảnh / Video Kỷ Niệm</span>
-                            <span class="text-xs text-gray-500 mt-1" id="upload-text-sub">Chạm để chọn một hoặc nhiều ảnh cùng lúc (hỗ trợ cả điện thoại & máy tính)</span>
-                            <!-- Thanh tiến trình xử lý ảnh trên điện thoại -->
+                            <span class="text-xs text-gray-500 mt-1" id="upload-text-sub">Chạm để chọn ảnh hoặc video (hỗ trợ cả điện thoại & máy tính)</span>
+                            <!-- Thanh tiến trình xử lý media trên điện thoại -->
                             <div id="upload-progress-container" class="hidden w-56 mt-3 text-center">
                                 <div class="w-full bg-rose-200/70 rounded-full h-2 overflow-hidden mb-1">
                                     <div id="upload-progress-bar" class="bg-rose-500 h-2 rounded-full transition-all duration-200" style="width: 0%"></div>
                                 </div>
-                                <span id="upload-progress-text" class="text-xs text-rose-600 font-semibold">Đang xử lý ảnh...</span>
+                                <span id="upload-progress-text" class="text-xs text-rose-600 font-semibold">Đang chuẩn bị file...</span>
                             </div>
                         </label>
                     </div>
 
-                    <!-- Khu vực Hiển thị Danh sách Ảnh đã chọn (Preview Grid) -->
+                    <!-- Khu vực Hiển thị Danh sách Media đã chọn (Preview Grid) -->
                     <div id="preview-section" class="hidden mb-6">
                         <div class="flex justify-between items-center mb-2">
-                            <span class="text-xs font-bold text-gray-600 uppercase tracking-wider">Ảnh đã chọn (<span id="preview-count">0</span> ảnh)</span>
+                            <span class="text-xs font-bold text-gray-600 uppercase tracking-wider">Đã chọn (<span id="preview-count">0</span> file)</span>
                             <div class="flex items-center space-x-3">
                                 <label for="media-upload" class="text-xs text-rose-600 font-bold hover:underline cursor-pointer flex items-center space-x-1">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
                                     </svg>
-                                    <span>Chọn thêm ảnh</span>
+                                    <span>Chọn thêm</span>
                                 </label>
                                 <button type="button" id="clear-selected-images" class="text-xs text-red-500 hover:underline">Xóa tất cả</button>
                             </div>
@@ -1077,15 +1077,19 @@
                     <p class="text-gray-600 leading-relaxed" id="settings-imagekit-desc">
                         Lưu trữ ảnh và video vĩnh viễn với 20GB CDN miễn phí mỗi tháng từ ImageKit.io (100% không mất phí, không cần thẻ ngân hàng).
                     </p>
-                    <div class="flex flex-wrap gap-2 pt-1">
+                    <div class="flex flex-wrap items-center gap-2 pt-1">
+                        <button type="button" id="btn-reconcile-imagekit" class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-xs transition-colors">
+                            🔄 Đồng Bộ & Dọn Dẹp ImageKit
+                        </button>
                         <a href="migrate_to_imagekit.html" target="_blank" class="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold shadow-xs transition-colors">
                             🚀 Chuyển Ảnh Lên ImageKit
                         </a>
                         <a href="HUONG_DAN_DANG_KY_IMAGEKIT.md" target="_blank" class="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded-xl font-medium transition-colors">
-                            📖 Hướng Dẫn Đăng Ký (2 phút)
+                            📖 Hướng Dẫn Đăng Ký
                         </a>
                     </div>
-            <!-- PHẦN 3: GOOGLE FIREBASE REALTIME DATABASE (ĐỒNG BỘ THỜI GIAN THỰC) -->
+                </div>
+            </div>
             <div class="mb-4 pt-4 border-t border-gray-100">
                 <h4 class="text-sm font-bold text-gray-800 mb-3 flex items-center justify-between">
                     <div class="flex items-center space-x-1.5">
@@ -1243,9 +1247,10 @@
             </div>
         </header>
 
-        <!-- Sân khấu chính hiển thị ảnh (Khu vực có thể Zoom, Pan, Drag) -->
+        <!-- Sân khấu chính hiển thị ảnh / video (Khu vực có thể Zoom, Pan, Drag) -->
         <main id="viewer-stage" class="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center select-none touch-none">
             <img id="viewer-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Ảnh kỷ niệm phóng to" class="max-w-none max-h-none block select-none pointer-events-auto transition-all will-change-transform opacity-0" draggable="false" onerror="this.onerror=null; if(window.FALLBACK_IMG_PLACEHOLDER) this.src=window.FALLBACK_IMG_PLACEHOLDER;">
+            <video id="viewer-video" class="max-w-[95vw] max-h-[85vh] rounded-2xl hidden select-none pointer-events-auto z-10 bg-black shadow-2xl" controls playsinline></video>
             
             <!-- Vòng quay tải ảnh nếu ảnh phân giải cực cao đang load -->
             <div id="viewer-loader" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
@@ -1278,13 +1283,13 @@
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
     <!-- Cấu hình Firebase Realtime Database -->
-    <script src="firebase-config.js?v=4.5"></script>
+    <script src="firebase-config.js?v=4.9"></script>
 
     <!-- Cấu hình lưu trữ ảnh ImageKit.io (20GB CDN miễn phí chính thức) -->
-    <script src="imagekit-config.js?v=4.5"></script>
+    <script src="imagekit-config.js?v=4.9"></script>
     <!-- Cấu hình đồng bộ đa thiết bị Cloud ImageKit & GitHub -->
-    <script src="github-sync-config.js?v=4.5"></script>
+    <script src="github-sync-config.js?v=4.9"></script>
     <!-- Script Logic Chính -->
-    <script src="script.js?v=4.5"></script>
+    <script src="script.js?v=4.9"></script>
 </body>
 </html>

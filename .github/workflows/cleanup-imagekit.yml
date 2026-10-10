@@ -1,11 +1,6 @@
 name: Tự Động Xóa Ảnh ImageKit Khi Xóa Kỷ Niệm
 
 on:
-  push:
-    paths:
-      - 'memories.json'
-    branches:
-      - main
   workflow_dispatch:
   schedule:
     # Dọn dẹp định kỳ mỗi ngày một lần (0h UTC)

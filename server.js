@@ -143,16 +143,20 @@ async function deleteImageFromImageKit(urlOrName) {
 
         const authHeader = 'Basic ' + Buffer.from(privateKey + ':').toString('base64');
 
-        // Tìm fileId theo tên file trong folder /anhuyen_memories
-        const searchUrl = `https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=${encodeURIComponent(`name="${fileName}"`)}`;
-        const searchResp = await fetch(searchUrl, {
-            headers: { 'Authorization': authHeader }
-        });
-        if (!searchResp.ok) return false;
+        // Tìm fileId theo tên file (tìm toàn cục hoặc trong folder /anhuyen_memories)
+        let searchUrl = `https://api.imagekit.io/v1/files?searchQuery=${encodeURIComponent(`name = "${fileName}"`)}`;
+        let searchResp = await fetch(searchUrl, { headers: { 'Authorization': authHeader } });
+        let files = searchResp.ok ? await searchResp.json() : [];
 
-        const files = await searchResp.json();
+        if (!Array.isArray(files) || files.length === 0) {
+            searchUrl = `https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=${encodeURIComponent(`name="${fileName}"`)}`;
+            searchResp = await fetch(searchUrl, { headers: { 'Authorization': authHeader } });
+            files = searchResp.ok ? await searchResp.json() : [];
+        }
+
         if (!Array.isArray(files) || files.length === 0) return false;
 
+        let deletedAny = false;
         for (const file of files) {
             if (file && file.fileId) {
                 const delResp = await fetch(`https://api.imagekit.io/v1/files/${file.fileId}`, {
@@ -160,12 +164,102 @@ async function deleteImageFromImageKit(urlOrName) {
                     headers: { 'Authorization': authHeader }
                 });
                 console.log(`[ImageKit] Đã xóa ảnh: ${file.name} (ID: ${file.fileId}) - Status: ${delResp.status}`);
+                deletedAny = true;
             }
         }
-        return true;
+        return deletedAny;
     } catch (err) {
         console.error('[ImageKit] Lỗi khi xóa ảnh:', err.message);
         return false;
+    }
+}
+
+async function cleanupImageKitOrphanedFiles() {
+    const privateKey = getImageKitPrivateKey();
+    if (!privateKey) return { status: 'error', message: 'Chưa cấu hình Private Key' };
+
+    try {
+        const authHeader = 'Basic ' + Buffer.from(privateKey + ':').toString('base64');
+        const activeFiles = new Set();
+        const deletedIds = new Set(readDeletedIdsFromDisk().map(String));
+
+        // 1. Kỷ niệm trên ổ đĩa
+        const localMems = readMemoriesFromDisk();
+        for (const m of localMems) {
+            if (!m || !m.id || deletedIds.has(String(m.id))) continue;
+            const imgs = Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []);
+            for (const img of imgs) {
+                if (typeof img === 'string' && img.includes('ik.imagekit.io')) {
+                    const name = img.split('/').pop().split('?')[0];
+                    if (name) activeFiles.add(name);
+                }
+            }
+        }
+
+        // 2. Kỷ niệm trên ImageKit Cloud
+        try {
+            const resp = await fetch('https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json?_t=' + Date.now());
+            if (resp.ok) {
+                const data = await resp.json();
+                if (Array.isArray(data.deletedIds)) {
+                    data.deletedIds.forEach(id => deletedIds.add(String(id)));
+                }
+                const cMems = Array.isArray(data) ? data : (data.memories || []);
+                for (const m of cMems) {
+                    if (!m || !m.id || deletedIds.has(String(m.id))) continue;
+                    const imgs = Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []);
+                    for (const img of imgs) {
+                        if (typeof img === 'string' && img.includes('ik.imagekit.io')) {
+                            const name = img.split('/').pop().split('?')[0];
+                            if (name) activeFiles.add(name);
+                        }
+                    }
+                }
+            }
+        } catch (e) {}
+
+        // 3. Lấy danh sách file trên ImageKit
+        let allFiles = [];
+        let skip = 0;
+        const limit = 100;
+        while (true) {
+            const url = `https://api.imagekit.io/v1/files?path=/anhuyen_memories&limit=${limit}&skip=${skip}`;
+            const resp = await fetch(url, { headers: { 'Authorization': authHeader } });
+            if (!resp.ok) break;
+            const data = await resp.json();
+            if (!Array.isArray(data) || data.length === 0) break;
+            allFiles.push(...data);
+            if (data.length < limit) break;
+            skip += limit;
+        }
+
+        const now = Date.now();
+        const GRACE_PERIOD = 6 * 3600 * 1000;
+        let deletedCount = 0;
+
+        for (const f of allFiles) {
+            if (!f || !f.name) continue;
+            if (activeFiles.has(f.name)) continue;
+            const created = f.createdAt ? new Date(f.createdAt).getTime() : 0;
+            if (created && (now - created < GRACE_PERIOD)) continue;
+
+            try {
+                const delResp = await fetch(`https://api.imagekit.io/v1/files/${f.fileId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': authHeader }
+                });
+                if (delResp.ok || delResp.status === 204) deletedCount++;
+            } catch (e) {}
+        }
+
+        return {
+            status: 'ok',
+            activeFilesCount: activeFiles.size,
+            totalFilesCount: allFiles.length,
+            deletedCount
+        };
+    } catch (err) {
+        return { status: 'error', message: err.message };
     }
 }
 
@@ -292,6 +386,19 @@ const server = http.createServer(async (req, res) => {
                 results.push({ url: u, deleted });
             }
             sendJSON(res, 200, { status: 'ok', results });
+        } catch (err) {
+            sendJSON(res, 500, { status: 'error', message: err.message });
+        }
+        return;
+    }
+
+    // =========================================================================
+    // 3.2. API DON DEP TOAN DIEN IMAGEKIT (/api/imagekit/cleanup)
+    // =========================================================================
+    if (pathname === '/api/imagekit/cleanup' && req.method === 'POST') {
+        try {
+            const cleanupResult = await cleanupImageKitOrphanedFiles();
+            sendJSON(res, 200, cleanupResult);
         } catch (err) {
             sendJSON(res, 500, { status: 'error', message: err.message });
         }

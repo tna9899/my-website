@@ -182,20 +182,32 @@ function Delete-ImageKitFile($imageUrlOrName) {
         $base64Auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${privateKey}:"))
         $headers = @{ "Authorization" = "Basic $base64Auth" }
 
-        # Tim fileId theo ten file trong thu muc /anhuyen_memories
-        $searchUrl = "https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=" + [System.Uri]::EscapeDataString("name=""$fileName""")
-        $searchResp = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 5 -ErrorAction SilentlyContinue
-        if ($searchResp -and $searchResp.Count -gt 0) {
-            foreach ($f in $searchResp) {
-                if ($f.fileId) {
-                    $delUrl = "https://api.imagekit.io/v1/files/$($f.fileId)"
-                    Invoke-RestMethod -Uri $delUrl -Headers $headers -Method Delete -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "[ImageKit] Da xoa anh: $($f.name) (ID: $($f.fileId))" -ForegroundColor Yellow
-                }
-            }
-            return $true
+        # Tim fileId theo ten file: thu ca searchQuery toan cuc va theo thu muc
+        $q = [System.Uri]::EscapeDataString("name = ""$fileName""")
+        $searchUrl = "https://api.imagekit.io/v1/files?searchQuery=$q"
+        $searchResp = Invoke-RestMethod -Uri $searchUrl -Headers $headers -Method Get -TimeoutSec 8 -ErrorAction SilentlyContinue
+        $files = @($searchResp)
+
+        if ($files.Count -eq 0) {
+            $q2 = [System.Uri]::EscapeDataString("name=""$fileName""")
+            $searchUrl2 = "https://api.imagekit.io/v1/files?path=/anhuyen_memories&searchQuery=$q2"
+            $searchResp2 = Invoke-RestMethod -Uri $searchUrl2 -Headers $headers -Method Get -TimeoutSec 8 -ErrorAction SilentlyContinue
+            $files = @($searchResp2)
         }
-    } catch {}
+
+        $deletedAny = $false
+        foreach ($f in $files) {
+            if ($f -and $f.fileId) {
+                $delUrl = "https://api.imagekit.io/v1/files/$($f.fileId)"
+                Invoke-RestMethod -Uri $delUrl -Headers $headers -Method Delete -TimeoutSec 8 -ErrorAction SilentlyContinue | Out-Null
+                Write-Host "[ImageKit] Da xoa anh thanh cong: $($f.name) (ID: $($f.fileId))" -ForegroundColor Yellow
+                $deletedAny = $true
+            }
+        }
+        return $deletedAny
+    } catch {
+        Write-Host "[ImageKit Delete Error] $_" -ForegroundColor Red
+    }
     return $false
 }
 
@@ -358,6 +370,28 @@ while ($listener.IsListening) {
             $response.ContentType = "application/json; charset=utf-8"
             $response.ContentLength64 = $ikDelBuf.Length
             $response.OutputStream.Write($ikDelBuf, 0, $ikDelBuf.Length)
+            $response.Close()
+            continue
+        }
+
+        # 3.2. API DON DEP TOAN DIEN IMAGEKIT (/api/imagekit/cleanup)
+        if ($request.Url.AbsolutePath -eq "/api/imagekit/cleanup" -and $request.HttpMethod -eq "POST") {
+            try {
+                $pyScript = Join-Path $folder "scripts\cleanup_imagekit.py"
+                if (Test-Path $pyScript) {
+                    $pyOut = & python $pyScript 2>&1 | Out-String
+                    Write-Host "[ImageKit Cleanup] $pyOut" -ForegroundColor Cyan
+                }
+                $response.StatusCode = 200
+                $resJson = '{"status":"ok","message":"ImageKit cleanup executed successfully"}'
+            } catch {
+                $response.StatusCode = 500
+                $resJson = '{"status":"error","message":"' + $_.Exception.Message.Replace('"', '\"') + '"}'
+            }
+            $ikCleanBuf = [System.Text.Encoding]::UTF8.GetBytes($resJson)
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.ContentLength64 = $ikCleanBuf.Length
+            $response.OutputStream.Write($ikCleanBuf, 0, $ikCleanBuf.Length)
             $response.Close()
             continue
         }
