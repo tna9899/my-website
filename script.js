@@ -2700,12 +2700,82 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const renderMemories = () => {
         clearAllAutoSlideIntervals(); // Hủy các timer cũ khi render mới
-        const memories = MemoryStore.getAll();
+        const allMemories = MemoryStore.getAll();
         const isOwner = Auth.isLoggedIn();
         memoriesContainer.innerHTML = '';
 
+        let memories = allMemories;
+        const filterBanner = document.getElementById('filter-status-banner');
+
+        if (window.activeProvinceFilter) {
+            const prov = (typeof PROVINCES_65 !== 'undefined') ? PROVINCES_65.find(p => p.id === window.activeProvinceFilter) : null;
+            if (prov) {
+                memories = findMemoriesForProvince(prov, allMemories);
+                if (filterBanner) {
+                    filterBanner.classList.remove('hidden');
+                    filterBanner.innerHTML = `
+                        <div class="p-4 bg-gradient-to-r from-rose-50 via-pink-50 to-rose-50 rounded-2xl border border-rose-200/90 shadow-xs flex flex-wrap items-center justify-between gap-3 animate-fade-in mb-6">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-2xl bg-rose-500 text-white flex items-center justify-center font-bold text-base shadow-sm">
+                                    📍
+                                </div>
+                                <div>
+                                    <span class="text-[11px] text-gray-500 font-medium block">Đang xem kỷ niệm tại:</span>
+                                    <h4 class="text-base font-bold text-rose-700 leading-tight">
+                                        ${prov.name} <span class="text-xs font-semibold text-gray-600 bg-white px-2 py-0.5 rounded-full border border-rose-200 ml-1">(${memories.length} album)</span>
+                                    </h4>
+                                </div>
+                            </div>
+                            <button type="button" onclick="window.clearProvinceFilter()" class="px-3.5 py-1.5 rounded-xl bg-white hover:bg-rose-100 text-rose-600 text-xs font-bold border border-rose-300 shadow-xs transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer">
+                                <span>✕ Hiện tất cả kỷ niệm</span>
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        } else {
+            if (filterBanner) {
+                filterBanner.classList.add('hidden');
+                filterBanner.innerHTML = '';
+            }
+        }
+
         if (!memories.length) {
             emptyState.classList.remove('hidden');
+            if (window.activeProvinceFilter) {
+                const prov = (typeof PROVINCES_65 !== 'undefined') ? PROVINCES_65.find(p => p.id === window.activeProvinceFilter) : null;
+                const provName = prov ? prov.name : 'địa điểm này';
+                emptyState.innerHTML = `
+                    <div class="py-6">
+                        <span class="text-5xl mb-3 block">📍</span>
+                        <h3 class="font-playfair text-2xl text-gray-700 mb-2 font-bold">Chưa Có Kỷ Niệm Tại ${provName}</h3>
+                        <p class="text-gray-500 max-w-md mx-auto mb-5 text-sm">Chưa có ảnh hoặc video nào được lưu tại đây. Hãy thêm kỷ niệm đầu tiên hoặc xem các tỉnh thành khác!</p>
+                        <div class="flex items-center justify-center gap-3 flex-wrap">
+                            <button onclick="window.addPhotoAtLocation('${prov ? prov.shortName : ''}')" class="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white font-semibold rounded-xl shadow-md transition-all text-xs cursor-pointer">
+                                + Thêm Kỷ Niệm Tại Đây
+                            </button>
+                            <button onclick="window.clearProvinceFilter()" class="px-4 py-2 bg-white border border-rose-300 hover:bg-rose-50 text-rose-600 font-semibold rounded-xl shadow-xs transition-all text-xs cursor-pointer">
+                                🌟 Hiện Tất Cả Kỷ Niệm
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else {
+                emptyState.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-20 w-20 mx-auto text-rose-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <h3 class="font-playfair text-2xl text-gray-700 mb-2 font-bold">Chưa Có Kỷ Niệm Nào</h3>
+                    <p class="text-gray-500 max-w-md mx-auto mb-6">Hãy bắt đầu lưu giữ những kỷ niệm tuyệt vời đầu tiên của Ngọc Ánh & Tú Uyên ngay nhé!</p>
+                    <button id="empty-add-btn" class="px-6 py-3 bg-rose-500 hover:bg-rose-600 text-white font-semibold rounded-xl shadow-md transition-all cursor-pointer">
+                        Thêm Kỷ Niệm Đầu Tiên
+                    </button>
+                `;
+                const newEmptyAddBtn = document.getElementById('empty-add-btn');
+                if (newEmptyAddBtn) {
+                    newEmptyAddBtn.addEventListener('click', () => switchTab('add'));
+                }
+            }
             return;
         }
 
@@ -4071,7 +4141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let mapEventsAttached = false;
 
     // Hàm chuyển chữ tiếng Việt có dấu thành không dấu để so sánh thông minh
-    const removeVietnameseTones = (str) => {
+    function removeVietnameseTones(str) {
         if (!str) return '';
         str = str.toLowerCase();
         str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
@@ -4082,13 +4152,13 @@ document.addEventListener('DOMContentLoaded', () => {
         str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, "y");
         str = str.replace(/đ/g, "d");
         return str.trim();
-    };
+    }
 
     // Tìm kiếm các kỷ niệm của đôi bạn thuộc tỉnh thành này
-    const findMemoriesForProvince = (prov, memories) => {
-        if (!memories || !memories.length) return [];
-        const nameNorm = removeVietnameseTones(prov.name);
-        const shortNorm = removeVietnameseTones(prov.shortName);
+    function findMemoriesForProvince(prov, memories) {
+        if (!prov || !memories || !memories.length) return [];
+        const nameNorm = removeVietnameseTones(prov.name || '');
+        const shortNorm = removeVietnameseTones(prov.shortName || '');
         const aliasNorms = (prov.aliases || []).map(a => removeVietnameseTones(a)).filter(a => a.length >= 2);
 
         return memories.filter(m => {
@@ -4096,13 +4166,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const locNorm = removeVietnameseTones(m.location);
             
             // So khớp trực tiếp tên tỉnh / thành phố
-            if (locNorm.includes(nameNorm) || nameNorm.includes(locNorm)) return true;
-            if (locNorm.includes(shortNorm) || shortNorm.includes(locNorm)) return true;
+            if (nameNorm && (locNorm.includes(nameNorm) || nameNorm.includes(locNorm))) return true;
+            if (shortNorm && (locNorm.includes(shortNorm) || shortNorm.includes(locNorm))) return true;
             
             // So khớp danh sách bí danh, danh lam, địa danh du lịch nổi tiếng
             return aliasNorms.some(alias => locNorm.includes(alias) || alias.includes(locNorm));
         });
-    };
+    }
 
     // Hàm cuộn mượt đến album trên dòng thời gian bên trái và nháy sáng viền nổi bật
     window.scrollToMemory = (memoryId) => {
@@ -4300,10 +4370,95 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Hàm chọn địa điểm trên bản đồ
+    // Hàm chọn địa điểm trên bản đồ và lọc kỷ niệm của tỉnh đó
     const selectMapLocation = (provId, shouldScrollToFeed = false) => {
         selectedLocationId = provId;
-        updateLocationDetailsBox(provId, shouldScrollToFeed);
+        window.activeProvinceFilter = provId;
+        updateLocationDetailsBox(provId, false);
+        renderMemories();
+
+        // Cập nhật lại trạng thái active trên SVG map và pins
+        document.querySelectorAll('#vietnam-svg-map path, #vietnam-map-svg path, .vn-map path').forEach(path => {
+            if (path.id === provId) {
+                path.classList.add('active-province');
+            } else {
+                path.classList.remove('active-province');
+            }
+        });
+
+        document.querySelectorAll('.province-pin, .province-photo-pin').forEach(pin => {
+            if (pin.getAttribute('data-province-id') === provId) {
+                pin.classList.add('active');
+            } else {
+                pin.classList.remove('active');
+            }
+        });
+
+        // Cập nhật lại style active trên các chips
+        const chipsContainer = document.getElementById('map-checkin-chips');
+        if (chipsContainer) {
+            chipsContainer.querySelectorAll('button[data-province-id]').forEach(btn => {
+                const bProvId = btn.getAttribute('data-province-id');
+                const isSelected = bProvId === provId;
+                if (isSelected) {
+                    btn.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 bg-rose-600 text-white shadow-xs';
+                    const badge = btn.querySelector('.badge-count');
+                    if (badge) badge.className = 'badge-count bg-white text-rose-600 rounded-full px-1.5 py-0.2 text-[10px] font-extrabold';
+                } else {
+                    btn.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80';
+                    const badge = btn.querySelector('.badge-count');
+                    if (badge) badge.className = 'badge-count bg-rose-500 text-white rounded-full px-1.5 py-0.2 text-[10px] font-extrabold';
+                }
+            });
+            const allBtn = chipsContainer.querySelector('button[data-all-memories="true"]');
+            if (allBtn) {
+                allBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80';
+                const allBadge = allBtn.querySelector('.badge-count');
+                if (allBadge) allBadge.className = 'badge-count bg-rose-500 text-white rounded-full px-1.5 py-0.2 text-[10px] font-extrabold';
+            }
+        }
+
+        if (shouldScrollToFeed) {
+            const feedTarget = document.getElementById('filter-status-banner') || document.getElementById('memories-container');
+            if (feedTarget) {
+                feedTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+    };
+    window.selectMapLocation = selectMapLocation;
+
+    // Hàm xóa bộ lọc tỉnh thành, hiện lại toàn bộ kỷ niệm của tất cả tỉnh
+    window.clearProvinceFilter = () => {
+        window.activeProvinceFilter = null;
+        selectedLocationId = null;
+        renderMemories();
+
+        // Xóa class active trên bản đồ SVG
+        document.querySelectorAll('#vietnam-svg-map path, #vietnam-map-svg path, .vn-map path').forEach(path => {
+            path.classList.remove('active-province');
+        });
+        document.querySelectorAll('.province-pin, .province-photo-pin').forEach(pin => {
+            pin.classList.remove('active');
+        });
+
+        // Reset lại chip Tất Cả thành active
+        const chipsContainer = document.getElementById('map-checkin-chips');
+        if (chipsContainer) {
+            chipsContainer.querySelectorAll('button[data-province-id]').forEach(btn => {
+                btn.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80';
+                const badge = btn.querySelector('.badge-count');
+                if (badge) badge.className = 'badge-count bg-rose-500 text-white rounded-full px-1.5 py-0.2 text-[10px] font-extrabold';
+            });
+            const allBtn = chipsContainer.querySelector('button[data-all-memories="true"]');
+            if (allBtn) {
+                allBtn.className = 'px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 bg-rose-600 text-white shadow-xs';
+                const allBadge = allBtn.querySelector('.badge-count');
+                if (allBadge) allBadge.className = 'badge-count bg-white text-rose-600 rounded-full px-1.5 py-0.2 text-[10px] font-extrabold';
+            }
+        }
+
+        // Reset hộp thông tin
+        updateLocationDetailsBox(null, false);
     };
 
     // =========================================================================
@@ -4853,19 +5008,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 4. Render danh sách các điểm đã chụp ảnh dạng chip
         if (chipsContainer) {
+            const isAllSelected = !window.activeProvinceFilter;
+            const totalCount = memories.length;
+
+            const allChipHtml = `
+                <button type="button" data-all-memories="true" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 ${isAllSelected ? 'bg-rose-600 text-white shadow-xs' : 'text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80'}" onclick="window.clearProvinceFilter()">
+                    <span>🌟 Tất cả</span>
+                    <span class="badge-count ${isAllSelected ? 'bg-white text-rose-600' : 'bg-rose-500 text-white'} rounded-full px-1.5 py-0.2 text-[10px] font-extrabold">${totalCount}</span>
+                </button>
+            `;
+
             if (visitedProvinces.length > 0) {
-                chipsContainer.innerHTML = visitedProvinces.map(p => {
+                const provChipsHtml = visitedProvinces.map(p => {
                     const count = (provinceMemoryMap[p.id] || []).length;
-                    const isSelected = p.id === selectedLocationId;
+                    const isSelected = p.id === window.activeProvinceFilter;
                     return `
-                        <button class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 ${isSelected ? 'bg-rose-600 text-white shadow-xs' : 'text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80'}" onclick="window.selectAndScrollMap('${p.id}')">
+                        <button type="button" data-province-id="${p.id}" class="px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer active:scale-95 ${isSelected ? 'bg-rose-600 text-white shadow-xs' : 'text-rose-700 bg-rose-100 hover:bg-rose-200 border border-rose-200/80'}" onclick="window.selectAndScrollMap('${p.id}')">
                             <span>📍 ${p.shortName}</span>
-                            <span class="${isSelected ? 'bg-white text-rose-600' : 'bg-rose-500 text-white'} rounded-full px-1.5 py-0.2 text-[10px] font-extrabold">${count}</span>
+                            <span class="badge-count ${isSelected ? 'bg-white text-rose-600' : 'bg-rose-500 text-white'} rounded-full px-1.5 py-0.2 text-[10px] font-extrabold">${count}</span>
                         </button>
                     `;
                 }).join('');
+
+                chipsContainer.innerHTML = allChipHtml + provChipsHtml;
             } else {
-                chipsContainer.innerHTML = `
+                chipsContainer.innerHTML = allChipHtml + `
                     <p class="text-gray-400 text-xs italic py-1">Chưa có điểm chụp nào. Hãy bấm <strong>Thêm Ảnh</strong> và điền địa điểm (VD: Đà Lạt, Hà Nội,...) để thắp sáng bản đồ tình yêu!</p>
                 `;
             }
