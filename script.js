@@ -1811,7 +1811,6 @@ document.addEventListener('DOMContentLoaded', () => {
             updateAuthUI();
             renderMemories();
             renderVietnamMap();
-            alert('🎉 Đăng nhập thành công! Bạn đang ở chế độ Chủ Nhân với toàn quyền thêm, sửa và xóa ảnh video.');
         } else {
             if (loginError) loginError.classList.remove('hidden');
             loginBtn.classList.add('animate-bounce');
@@ -1834,7 +1833,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         renderMemories();
         renderVietnamMap();
-        alert('👀 Bạn đã đăng xuất và trở về Chế độ xem.');
     });
 
     // =========================================================================
@@ -2581,16 +2579,16 @@ document.addEventListener('DOMContentLoaded', () => {
         memoryLocation.value = '';
         memoryDate.value = '';
 
-        // Chuyển sang Tab Trang chủ để xem kết quả
+        // Chuyển sang Tab Trang chủ và tự động cuộn đến ngay vùng ảnh kỷ niệm vừa mới thêm
         switchTab('home');
         renderMemories();
         renderVietnamMap();
 
-        if (synced) {
-            alert('🎉 Đã lưu và đồng bộ thành công! Ảnh đã sẵn sàng hiển thị trên cả máy tính & điện thoại.');
-        } else {
-            alert('⚠️ Đã lưu trên thiết bị của bạn. Khi máy chủ kết nối lại, ảnh sẽ tự động đồng bộ sang thiết bị khác.');
-        }
+        setTimeout(() => {
+            if (newMemory && newMemory.id) {
+                window.scrollToMemory(newMemory.id);
+            }
+        }, 150);
     });
 
     // =========================================================================
@@ -2858,13 +2856,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (window.isVideoUrl(images[0])) {
                     mediaMarkup = `
                         <div class="single-photo-frame w-full bg-black/90 overflow-hidden flex items-center justify-center p-3 rounded-2xl" data-single-frame="${memoryId}">
-                            <video src="${images[0]}" controls playsinline preload="metadata" class="w-full max-h-[540px] rounded-2xl block bg-black shadow-md"></video>
+                            <video src="${images[0]}" controls playsinline preload="metadata" class="w-full max-h-[620px] rounded-2xl block bg-black shadow-md"></video>
                         </div>
                     `;
                 } else {
                     mediaMarkup = `
                         <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                            <img src="${images[0]}" alt="" class="w-full max-h-[540px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                            <img src="${images[0]}" alt="" class="w-full max-h-[620px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
                         </div>
                     `;
                 }
@@ -5384,15 +5382,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     const synced = await MemoryStore.saveAll(memories);
                     Logger.log('EDIT_MEMORY_SUCCESS', `Đã cập nhật kỷ niệm ID: ${this.currentMemoryId}`);
 
+                    const updatedId = this.currentMemoryId;
                     this.close();
                     renderMemories();
                     renderVietnamMap();
 
-                    if (synced) {
-                        alert('🎉 Đã cập nhật kỷ niệm thành công và đồng bộ ngay lập tức tới tất cả thiết bị!');
-                    } else {
-                        alert('Đã lưu thay đổi kỷ niệm trên thiết bị này (sẽ tự động đồng bộ khi có kết nối Cloud).');
-                    }
+                    setTimeout(() => {
+                        if (updatedId) {
+                            window.scrollToMemory(updatedId);
+                        }
+                    }, 150);
                 }
             } catch (err) {
                 alert('Lỗi cập nhật: ' + err.message);
