@@ -987,8 +987,8 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSyncStatusUI('syncing');
 
             let updated = false;
+            // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
             try {
-                // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
                 const fbDbUrl = (window.firebaseConfig && window.firebaseConfig.databaseURL) 
                     || 'https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app';
                 
@@ -1157,12 +1157,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 updated = true;
                 updateSyncStatusUI('synced');
             }
-            } catch (err) {
-                console.warn('[Sync] Lỗi trong quá trình nạp dữ liệu:', err);
-            } finally {
-                this._isFetching = false;
-                updateSyncStatusUI('synced');
-            }
+
+            this._isFetching = false;
+            updateSyncStatusUI('synced');
             return updated;
         },
 
