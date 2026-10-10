@@ -322,26 +322,9 @@ body.theme-applied {
     gap: 4px;
 }
 
-/* Badge gợi ý vuốt ảnh trên điện thoại */
+/* Badge gợi ý vuốt ảnh trên điện thoại (đã ẩn theo yêu cầu) */
 .carousel-swipe-hint {
-    position: absolute;
-    top: 14px;
-    left: 14px;
-    background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(6px);
-    color: #ffffff;
-    font-size: 0.72rem;
-    padding: 3px 9px;
-    border-radius: 9999px;
-    font-weight: 600;
-    z-index: 25;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    pointer-events: none;
-    user-select: none;
-    -webkit-user-select: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    display: none !important;
 }
 
 /* Dropdown menu người dùng */

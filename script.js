@@ -982,13 +982,13 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         async fetchLatestFromServer(force = false) {
-            if (this._isFetching) return false;
+            if (this._isFetching && !force) return false;
             this._isFetching = true;
             updateSyncStatusUI('syncing');
 
             let updated = false;
-            // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
             try {
+                // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
                 const fbDbUrl = (window.firebaseConfig && window.firebaseConfig.databaseURL) 
                     || 'https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app';
                 
@@ -1157,9 +1157,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 updated = true;
                 updateSyncStatusUI('synced');
             }
-
-            this._isFetching = false;
-            updateSyncStatusUI('synced');
+            } catch (err) {
+                console.warn('[Sync] Lỗi trong quá trình nạp dữ liệu:', err);
+            } finally {
+                this._isFetching = false;
+                updateSyncStatusUI('synced');
+            }
             return updated;
         },
 
@@ -1379,6 +1382,83 @@ document.addEventListener('DOMContentLoaded', () => {
             text.className = 'hidden sm:inline text-rose-500 font-medium';
             if (btn) btn.title = 'Chưa kết nối được máy chủ. Bấm để thử kết nối lại.';
         }
+    };
+
+    // Thông báo đồng bộ tự động tắt sau 3 giây kèm bộ đếm ngược
+    let syncCountdownTimer = null;
+    const showSyncCountdownToast = (options = {}) => {
+        const title = options.title || 'Đã đồng bộ ảnh trên tất cả các thiết bị!';
+        const detail = options.detail || '';
+        let secondsLeft = options.durationSeconds || 3;
+        const isError = !!options.isError;
+
+        if (syncCountdownTimer) {
+            clearInterval(syncCountdownTimer);
+            syncCountdownTimer = null;
+        }
+
+        let toast = document.getElementById('sync-countdown-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'sync-countdown-toast';
+            toast.className = 'fixed top-5 left-1/2 -translate-x-1/2 z-[99999] max-w-md w-[92vw] sm:w-auto transition-all duration-300 transform -translate-y-4 opacity-0 pointer-events-none select-none';
+            document.body.appendChild(toast);
+        }
+
+        const iconHtml = isError
+            ? `<span class="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-base flex-shrink-0">⚠️</span>`
+            : `<span class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-base flex-shrink-0">✓</span>`;
+
+        const borderBg = isError
+            ? 'bg-white/95 border-rose-200 text-rose-900 shadow-2xl'
+            : 'bg-white/95 border-emerald-200 text-gray-800 shadow-2xl';
+
+        toast.innerHTML = `
+            <div class="flex items-center gap-3 p-3.5 sm:px-4 sm:py-3 rounded-2xl border ${borderBg} backdrop-blur-md">
+                ${iconHtml}
+                <div class="flex-1 min-w-0 pr-1">
+                    <div class="font-bold text-xs sm:text-sm leading-tight text-gray-800">${title}</div>
+                    ${detail ? `<div class="text-[11px] text-gray-500 mt-0.5">${detail}</div>` : ''}
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <span id="sync-countdown-num" class="px-2 py-0.5 rounded-full text-[11px] font-extrabold ${isError ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}">
+                        ${secondsLeft}s
+                    </span>
+                    <button type="button" id="btn-close-sync-toast" class="w-6 h-6 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 flex items-center justify-center text-xs cursor-pointer font-bold transition-colors" title="Đóng">
+                        ✕
+                    </button>
+                </div>
+            </div>
+        `;
+
+        toast.classList.remove('opacity-0', '-translate-y-4', 'pointer-events-none');
+        toast.classList.add('opacity-100', 'translate-y-0', 'pointer-events-auto');
+
+        const numEl = document.getElementById('sync-countdown-num');
+        const closeBtn = document.getElementById('btn-close-sync-toast');
+
+        const dismissToast = () => {
+            if (syncCountdownTimer) {
+                clearInterval(syncCountdownTimer);
+                syncCountdownTimer = null;
+            }
+            toast.classList.remove('opacity-100', 'translate-y-0', 'pointer-events-auto');
+            toast.classList.add('opacity-0', '-translate-y-4', 'pointer-events-none');
+        };
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', dismissToast);
+        }
+
+        syncCountdownTimer = setInterval(() => {
+            secondsLeft -= 1;
+            if (numEl) {
+                numEl.textContent = `${secondsLeft}s`;
+            }
+            if (secondsLeft <= 0) {
+                dismissToast();
+            }
+        }, 1000);
     };
 
     // =========================================================================
@@ -1911,14 +1991,30 @@ document.addEventListener('DOMContentLoaded', () => {
     if (syncStatusBtn) {
         syncStatusBtn.addEventListener('click', async () => {
             updateSyncStatusUI('syncing');
-            const ok = await MemoryStore.fetchLatestFromServer(true);
-            const count = MemoryStore.getAll().length;
-            if (ok) {
+            syncStatusBtn.disabled = true;
+            try {
+                await MemoryStore.fetchLatestFromServer(true);
+                const count = MemoryStore.getAll().length;
+                updateSyncStatusUI('synced');
+                renderMemories();
+                renderVietnamMap();
                 Logger.log('MANUAL_SYNC_SUCCESS', `Người dùng đã bấm đồng bộ thành công (${count} kỷ niệm)`);
-                alert(`✅ Đã đồng bộ thành công! Hiện có ${count} album kỷ niệm cập nhật mới nhất từ đám mây.`);
-            } else {
-                Logger.log('MANUAL_SYNC_NOTICE', `Dữ liệu hiện tại đã là mới nhất (${count} kỷ niệm)`);
-                alert(`✨ Dữ liệu trên thiết bị của bạn đã là mới nhất (${count} album kỷ niệm).`);
+                showSyncCountdownToast({
+                    title: 'Đã đồng bộ ảnh trên tất cả các thiết bị!',
+                    detail: `Hiện có ${count} album kỷ niệm cập nhật mới nhất từ đám mây.`,
+                    durationSeconds: 3
+                });
+            } catch (err) {
+                updateSyncStatusUI('synced');
+                showSyncCountdownToast({
+                    title: 'Lỗi khi đồng bộ dữ liệu',
+                    detail: err.message || 'Vui lòng kiểm tra lại kết nối mạng.',
+                    durationSeconds: 3,
+                    isError: true
+                });
+            } finally {
+                syncStatusBtn.disabled = false;
+                updateSyncStatusUI('synced');
             }
         });
     }
@@ -2086,15 +2182,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 <svg class="animate-spin h-3.5 w-3.5 inline mr-1 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                 <span>Đang đồng bộ...</span>
             `;
+            updateSyncStatusUI('syncing');
             try {
                 await MemoryStore.fetchLatestFromServer(true);
                 const count = MemoryStore.getAll().length;
-                alert(`✅ Đã đồng bộ thành công! Hiện có ${count} album kỷ niệm mới nhất từ đám mây.`);
+                updateSyncStatusUI('synced');
+                renderMemories();
+                renderVietnamMap();
+                showSyncCountdownToast({
+                    title: 'Đã đồng bộ ảnh trên tất cả các thiết bị!',
+                    detail: `Hiện có ${count} album kỷ niệm mới nhất từ đám mây.`,
+                    durationSeconds: 3
+                });
             } catch (err) {
-                alert('Lỗi khi đồng bộ: ' + err.message);
+                updateSyncStatusUI('synced');
+                showSyncCountdownToast({
+                    title: 'Lỗi khi đồng bộ dữ liệu',
+                    detail: err.message,
+                    durationSeconds: 3,
+                    isError: true
+                });
             } finally {
                 btnForceSyncCloud.disabled = false;
                 btnForceSyncCloud.innerHTML = originalHtml;
+                updateSyncStatusUI('synced');
             }
         });
     }
@@ -2111,19 +2222,23 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             try {
                 const res = await MemoryStore.reconcileImageKit();
-                let msg = `✅ Đồng bộ & rà soát ImageKit thành công!`;
-                msg += `\n- Tổng số kỷ niệm hoạt động: ${res.memoriesCount}`;
-                if (res.cleanedCount > 0) {
-                    msg += `\n- Đã dọn dẹp sạch ${res.cleanedCount} ảnh mồ côi trên ImageKit.`;
-                } else {
-                    msg += `\n- Toàn bộ ảnh trên ImageKit đều khớp 100% với website (không có ảnh mồ côi).`;
-                }
-                alert(msg);
+                updateSyncStatusUI('synced');
+                showSyncCountdownToast({
+                    title: 'Đã đồng bộ & rà soát ImageKit thành công!',
+                    detail: `${res.memoriesCount} kỷ niệm hoạt động.${res.cleanedCount > 0 ? ` Đã dọn dẹp ${res.cleanedCount} ảnh mồ côi.` : ' Toàn bộ ảnh khớp 100%.'}`,
+                    durationSeconds: 3
+                });
             } catch (err) {
-                alert('Lỗi rà soát ImageKit: ' + err.message);
+                showSyncCountdownToast({
+                    title: 'Lỗi rà soát ImageKit',
+                    detail: err.message,
+                    durationSeconds: 3,
+                    isError: true
+                });
             } finally {
                 btnReconcileImageKit.disabled = false;
                 btnReconcileImageKit.innerHTML = originalHtml;
+                updateSyncStatusUI('synced');
             }
         });
     }
@@ -2800,14 +2915,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Hiển thị Album xếp chồng cách nhau 0.5cm
                 mediaMarkup = `
                     <div class="stacked-deck-container" id="carousel-${memoryId}">
-                        <!-- Gợi ý vuốt ảnh trên điện thoại -->
-                        <div class="carousel-swipe-hint">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-rose-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M7 16l-4-4m0 0l4-4m-4 4h18m-4 4l4-4m0 0l-4-4" />
-                            </svg>
-                            <span>Vuốt ảnh ‹ ›</span>
-                        </div>
-
                         <!-- Counter Badge với hiệu ứng đồng hồ xoay -->
                         <div class="carousel-counter" id="carousel-counter-${memoryId}">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-rose-300 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
