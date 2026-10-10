@@ -328,12 +328,46 @@
         <!-- CONTAINER NỘI DUNG CHÍNH -->
         <main class="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
             
-            <!-- ================= TAB 1: TRANG CHỦ (HIỂN THỊ KỶ NIỆM BÊN TRÁI & BẢN ĐỒ VIỆT NAM BÊN PHẢI) ================= -->
+            <!-- ================= TAB 1: TRANG CHỦ (BÊN TRÁI: ĐIỂM ĐẾN & BỘ LỌC | Ở GIỮA: KỶ NIỆM | BÊN PHẢI: BẢN ĐỒ VIỆT NAM) ================= -->
             <div id="home-tab" class="fade-in">
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 xl:gap-8 items-start">
                     
-                    <!-- CỘT BẢN ĐỒ (lg:col-span-5, BÊN TRÁI TRÊN MÁY TÍNH): BẢN ĐỒ VIỆT NAM & KHUNG ĐIỂM ĐẾN -->
-                    <div class="lg:col-span-5 w-full order-2 lg:order-1">
+                    <!-- CỘT 1: BÊN TRÁI TRÊN MÁY TÍNH (lg:col-span-3) - KHUNG CHI TIẾT ĐIỂM ĐẾN & CHIP LỌC KỶ NIỆM -->
+                    <div class="lg:col-span-3 w-full order-3 lg:order-1">
+                        <div class="sticky top-24 bg-white/95 backdrop-blur-sm p-4 sm:p-5 rounded-3xl shadow-lg border border-rose-100 space-y-4">
+                            <!-- Tiêu đề khung bộ lọc -->
+                            <div class="flex items-center justify-between border-b border-rose-100 pb-3">
+                                <div class="flex items-center space-x-2">
+                                    <span class="text-xl">📍</span>
+                                    <div>
+                                        <h3 class="font-playfair text-base sm:text-lg font-bold text-gray-800 leading-tight">Điểm Đến & Bộ Lọc</h3>
+                                        <p class="text-[11px] text-gray-500">Chi tiết hành trình & lọc kỷ niệm</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Khung thông tin điểm đến được chọn -->
+                            <div id="map-selected-location-box" class="p-3 bg-rose-50/50 rounded-2xl border border-rose-100 transition-all text-xs">
+                                <!-- Injected by JS -->
+                            </div>
+
+                            <!-- Danh sách các điểm đã chụp ảnh dạng chip -->
+                            <div id="map-checkin-chips-container" class="space-y-2 pt-1 border-t border-rose-100">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Lọc theo điểm đến:</span>
+                                    <button type="button" onclick="window.clearProvinceFilter()" id="btn-show-all-memories-link" class="text-[11px] text-rose-600 font-bold hover:underline flex items-center space-x-1 cursor-pointer">
+                                        <span>🌟 Hiện tất cả</span>
+                                    </button>
+                                </div>
+                                <div id="map-checkin-chips" class="flex flex-wrap gap-1.5 max-h-60 overflow-y-auto pr-1">
+                                    <!-- Injected by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CỘT 3: BÊN PHẢI TRÊN MÁY TÍNH (lg:col-span-4) - BẢN ĐỒ VIỆT NAM TƯƠNG TÁC -->
+                    <div class="lg:col-span-4 w-full order-2 lg:order-3">
                         <div class="sticky top-24 bg-white/95 backdrop-blur-sm p-4 sm:p-5 rounded-3xl shadow-lg border border-rose-100 space-y-4">
                             
                             <!-- Tiêu đề & Thống kê điểm chụp -->
@@ -830,28 +864,11 @@
     <span>Ho&#224;ng Sa &amp; Tr&#432;&#7853;ng Sa l&#224; m&#225;u th&#7883;t thi&#234;ng li&#234;ng c&#7911;a Vi&#7878;t Nam</span>
 </div>
 
-                            <div id="map-selected-location-box" class="p-3 bg-rose-50/50 rounded-2xl border border-rose-100 transition-all text-xs">
-                                <!-- Injected by JS -->
-                            </div>
-
-                            <!-- Danh sách các điểm đã chụp ảnh dạng chip -->
-                            <div id="map-checkin-chips-container" class="space-y-2 pt-1 border-t border-rose-100">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Lọc theo điểm đến:</span>
-                                    <button type="button" onclick="window.clearProvinceFilter()" id="btn-show-all-memories-link" class="text-[11px] text-rose-600 font-bold hover:underline flex items-center space-x-1 cursor-pointer">
-                                        <span>🌟 Hiện tất cả</span>
-                                    </button>
-                                </div>
-                                <div id="map-checkin-chips" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
-                                    <!-- Injected by JS -->
-                                </div>
-                            </div>
-
                         </div>
                     </div>
 
-                    <!-- CỘT KỶ NIỆM (lg:col-span-7, GIỮA WEB TRÊN MÁY TÍNH): DANH SÁCH ALBUM ẢNH KỶ NIỆM -->
-                    <div class="lg:col-span-7 w-full order-1 lg:order-2 space-y-6 max-w-2xl mx-auto lg:max-w-none">
+                    <!-- CỘT 2: Ở GIỮA TRÊN MÁY TÍNH (lg:col-span-5) - LUỒNG ALBUM ẢNH KỶ NIỆM -->
+                    <div class="lg:col-span-5 w-full order-1 lg:order-2 space-y-6 max-w-2xl mx-auto lg:max-w-none">
                         <!-- Khung thông báo đang lọc theo tỉnh (tự động hiện/ẩn bởi JS) -->
                         <div id="filter-status-banner" class="hidden"></div>
                         <div id="memories-container" class="space-y-8">
@@ -1305,6 +1322,6 @@
     <!-- Cấu hình đồng bộ đa thiết bị Cloud ImageKit & GitHub -->
     <script src="github-sync-config.js?v=5.0"></script>
     <!-- Script Logic Chính -->
-    <script src="script.js?v=5.1"></script>
+    <script src="script.js?v=5.2"></script>
 </body>
 </html>
