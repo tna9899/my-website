@@ -50,9 +50,9 @@ if (!window.handleThumbError) {
 if (!window.isVideoUrl) {
     window.isVideoUrl = function(url) {
         if (!url || typeof url !== 'string') return false;
-        const clean = url.split('?')[0].split('#')[0].toLowerCase();
         if (url.startsWith('data:video/')) return true;
-        if (/\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(clean)) return true;
+        const clean = url.split('?')[0].split('#')[0].toLowerCase();
+        if (/\.(mp4|mov|m4v|webm|avi|mkv|ogv|3gp)$/i.test(clean)) return true;
         if (/\/vid_[a-zA-Z0-9_-]+/i.test(clean)) return true;
         return false;
     };
@@ -1517,7 +1517,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (match) {
                                     let mExt = match[1].toLowerCase();
                                     if (mExt === 'quicktime') ext = 'mov';
-                                    else if (/^(mp4|mov|webm|m4v|avi|mkv|ogv)$/.test(mExt)) ext = mExt;
+                                    else if (mExt === 'x-m4v') ext = 'm4v';
+                                    else if (/^(mp4|mov|webm|m4v|avi|mkv|ogv|3gp)$/.test(mExt)) ext = mExt;
                                 }
                             } else {
                                 const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
@@ -2486,8 +2487,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const isImage = (file.type && file.type.startsWith('image/')) || 
                             /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
-            const isVideo = (file.type && file.type.startsWith('video/')) ||
-                            /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+            const isVideo = (file.type && (file.type.startsWith('video/') || file.type === 'video/quicktime' || file.type === 'video/x-m4v')) ||
+                            /\.(mp4|mov|m4v|webm|avi|mkv|ogv|3gp)$/i.test(file.name);
             if (!isImage && !isVideo) continue;
 
             try {
@@ -2831,7 +2832,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <span>Sửa</span>
                                 </button>
 
-                                <input type="file" id="input-add-photo-${memoryId}" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
+                                <input type="file" id="input-add-photo-${memoryId}" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.avif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.3gp,.MOV,.MP4,.M4V,.3GP,video/quicktime,video/mp4,video/x-m4v" multiple>
                                 <label for="input-add-photo-${memoryId}" class="text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1 rounded-xl transition-colors flex items-center space-x-1 text-xs font-bold border border-rose-200/80 shadow-xs cursor-pointer select-none active:scale-95" data-add-photo="${memoryId}" title="Thêm ảnh hoặc video vào album này">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
@@ -3262,8 +3263,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         btnText.textContent = `${processed}/${files.length}...`;
                         const isImg = (file.type && file.type.startsWith('image/')) || 
                                       /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
-                        const isVid = (file.type && file.type.startsWith('video/')) ||
-                                      /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+                        const isVid = (file.type && (file.type.startsWith('video/') || file.type === 'video/quicktime' || file.type === 'video/x-m4v')) ||
+                                      /\.(mp4|mov|m4v|webm|avi|mkv|ogv|3gp)$/i.test(file.name);
                         if (!isImg && !isVid) continue;
                         try {
                             if (isVid) {
@@ -5016,8 +5017,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     for (const file of files) {
                         const isImg = (file.type && file.type.startsWith('image/')) || 
                                       /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
-                        const isVid = (file.type && file.type.startsWith('video/')) ||
-                                      /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(file.name);
+                        const isVid = (file.type && (file.type.startsWith('video/') || file.type === 'video/quicktime' || file.type === 'video/x-m4v')) ||
+                                      /\.(mp4|mov|m4v|webm|avi|mkv|ogv|3gp)$/i.test(file.name);
                         if (!isImg && !isVid) continue;
                         try {
                             if (isVid) {
@@ -5481,8 +5482,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // Cập nhật link tải ảnh/video độ phân giải gốc
             if (this.btnDownload) {
                 this.btnDownload.href = currentSrc;
+                let ext = 'mp4';
+                if (/\.(mov|MOV)/i.test(currentSrc)) ext = 'mov';
+                else if (/\.(webm|WEBM)/i.test(currentSrc)) ext = 'webm';
+                else if (/\.(m4v|M4V)/i.test(currentSrc)) ext = 'm4v';
                 this.btnDownload.download = isVideo 
-                    ? `NgocAnh-TuUyen-Video-${this.currentIndex + 1}.mp4`
+                    ? `NgocAnh-TuUyen-Video-${this.currentIndex + 1}.${ext}`
                     : `NgocAnh-TuUyen-KyNiem-${this.currentIndex + 1}.jpg`;
             }
 
@@ -5790,7 +5795,44 @@ document.addEventListener('DOMContentLoaded', () => {
     window.ImageViewer = ImageViewer;
     window.openImageViewer = (images, startIndex, caption, subtitle) => ImageViewer.open(images, startIndex, caption, subtitle);
 
+    // =========================================================================
+    // 17. NÚT MŨI TÊN TRÒN CUỘN LÊN ĐẦU TRANG (SCROLL TO TOP BUTTON)
+    // =========================================================================
+    const initScrollToTop = () => {
+        const btnScrollToTop = document.getElementById('btn-scroll-to-top');
+        if (!btnScrollToTop) return;
+
+        let scrollTicking = false;
+        const toggleVisibility = () => {
+            if (window.scrollY > 280) {
+                btnScrollToTop.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-4');
+                btnScrollToTop.classList.add('opacity-100', 'pointer-events-auto', 'translate-y-0');
+            } else {
+                btnScrollToTop.classList.remove('opacity-100', 'pointer-events-auto', 'translate-y-0');
+                btnScrollToTop.classList.add('opacity-0', 'pointer-events-none', 'translate-y-4');
+            }
+        };
+
+        window.addEventListener('scroll', () => {
+            if (!scrollTicking) {
+                requestAnimationFrame(() => {
+                    toggleVisibility();
+                    scrollTicking = false;
+                });
+                scrollTicking = true;
+            }
+        }, { passive: true });
+
+        btnScrollToTop.addEventListener('click', () => {
+            window.scrollTo({
+                top: 0,
+                behavior: 'smooth'
+            });
+        });
+    };
+
     initHeartCursorTrail();
+    initScrollToTop();
 
     // Khởi tạo kiểm tra đăng nhập ban đầu & render bản đồ
     checkInitialLogin();

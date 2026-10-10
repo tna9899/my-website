@@ -167,7 +167,7 @@
 
                     <!-- Nút thêm ảnh / video mới vào album này -->
                     <div class="mt-2.5">
-                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
+                        <input type="file" id="edit-memory-add-files" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.avif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.3gp,.MOV,.MP4,.M4V,.3GP,video/quicktime,video/mp4,video/x-m4v" multiple>
                         <label for="edit-memory-add-files" class="w-full py-2 px-3 rounded-xl border-2 border-dashed border-rose-200 hover:border-rose-400 hover:bg-rose-50/50 text-rose-600 font-bold text-xs flex items-center justify-center space-x-2 transition-all cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -880,7 +880,7 @@
                     
                     <!-- Khung Tải Ảnh / Video (Multiple) -->
                     <div class="mb-6">
-                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.tiff,.tif,.avif,.mp4,.mov,.webm,.m4v,.avi,.mkv" multiple>
+                        <input type="file" id="media-upload" class="sr-only-file sr-only" accept="image/*,video/*,.heic,.heif,.HEIC,.HEIF,.jpg,.jpeg,.png,.webp,.gif,.bmp,.avif,.mp4,.mov,.m4v,.avi,.mkv,.webm,.3gp,.MOV,.MP4,.M4V,.3GP,video/quicktime,video/mp4,video/x-m4v" multiple>
                         <label for="media-upload" id="upload-trigger" class="flex flex-col items-center justify-center w-full py-8 sm:py-10 border-2 border-dashed border-rose-300 rounded-2xl bg-rose-50/40 hover:bg-rose-50/80 active:scale-[0.99] transition-all cursor-pointer group select-none">
                             <div class="w-14 h-14 rounded-full bg-rose-100 text-rose-500 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform shadow-xs">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -947,6 +947,17 @@
             </div>
         </main>
     </div>
+
+    <!-- Nút Cuộn Về Đầu Trang (Mũi tên tròn nổi) -->
+    <button id="btn-scroll-to-top" 
+        type="button" 
+        class="fixed bottom-6 right-6 z-40 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-rose-500/95 hover:bg-rose-600 active:scale-95 text-white shadow-xl hover:shadow-2xl flex items-center justify-center transition-all duration-300 opacity-0 pointer-events-none translate-y-4 hover:scale-110 cursor-pointer border-2 border-white/90 backdrop-blur-xs select-none" 
+        title="Cuộn về đầu trang" 
+        aria-label="Cuộn về đầu trang">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 sm:w-7 sm:h-7 transform -translate-y-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+        </svg>
+    </button>
 
     <!-- ================= 3. MODAL QUẢN LÝ TÀI KHOẢN & ĐỔI MẬT KHẨU ================= -->
     <div id="modal-account" class="modal-overlay hidden">
@@ -1283,13 +1294,13 @@
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
     <!-- Cấu hình Firebase Realtime Database -->
-    <script src="firebase-config.js?v=4.9"></script>
+    <script src="firebase-config.js?v=5.0"></script>
 
     <!-- Cấu hình lưu trữ ảnh ImageKit.io (20GB CDN miễn phí chính thức) -->
-    <script src="imagekit-config.js?v=4.9"></script>
+    <script src="imagekit-config.js?v=5.0"></script>
     <!-- Cấu hình đồng bộ đa thiết bị Cloud ImageKit & GitHub -->
-    <script src="github-sync-config.js?v=4.9"></script>
+    <script src="github-sync-config.js?v=5.0"></script>
     <!-- Script Logic Chính -->
-    <script src="script.js?v=4.9"></script>
+    <script src="script.js?v=5.0"></script>
 </body>
 </html>
