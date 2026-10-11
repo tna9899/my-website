@@ -211,8 +211,36 @@ function Delete-ImageKitFile($imageUrlOrName) {
     return $false
 }
 
+# Ham tu dong kiem tra va dong bo xoa anh tren ImageKit tu memories_cloud.json
+$lastCloudSyncTime = 0
+function Sync-CloudDeletions() {
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    if ($now - $global:lastCloudSyncTime -lt 25) { return }
+    $global:lastCloudSyncTime = $now
+
+    try {
+        $cloudUrl = "https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json?_t=$now"
+        $cloudData = Invoke-RestMethod -Uri $cloudUrl -Method Get -TimeoutSec 6 -ErrorAction SilentlyContinue
+        if (-not $cloudData) { return }
+
+        $delImages = @()
+        if ($cloudData.deletedImages -is [System.Array]) { $delImages = $cloudData.deletedImages }
+        elseif ($cloudData.deletedImages) { $delImages = @($cloudData.deletedImages) }
+
+        if ($delImages.Count -gt 0) {
+            Write-Host "[Auto-Sync] Phat hien $($delImages.Count) anh can xoa tren ImageKit tu Cloud..." -ForegroundColor Cyan
+            foreach ($img in $delImages) {
+                if ($img -and $img.Contains("ik.imagekit.io")) {
+                    Delete-ImageKitFile $img | Out-Null
+                }
+            }
+        }
+    } catch {}
+}
+
 while ($listener.IsListening) {
     try {
+        Sync-CloudDeletions
         $context = $listener.GetContext()
         $request = $context.Request
         $response = $context.Response
@@ -342,6 +370,29 @@ while ($listener.IsListening) {
                 $response.Close()
                 continue
             }
+        }
+
+        # 3.6. API THONG TIN KET NOI & DONG BO THIET BI (/api/info)
+        if ($request.Url.AbsolutePath -eq "/api/info" -and $request.HttpMethod -eq "GET") {
+            $onlineUrl = "https://tna9899.github.io/my-website/"
+            $wifiUrl = if ($localIp) { "http://${localIp}:${port}" } else { "http://localhost:${port}" }
+            $infoObj = [PSCustomObject]@{
+                status = "ok"
+                port = $port
+                localIp = $localIp
+                wifiUrl = $wifiUrl
+                localUrl = "http://localhost:${port}"
+                onlineUrl = $onlineUrl
+                cloudflareUrl = $onlineLink
+            }
+            $infoJson = ConvertTo-Json -InputObject $infoObj -Compress
+            $infoBuf = [System.Text.Encoding]::UTF8.GetBytes($infoJson)
+            $response.StatusCode = 200
+            $response.ContentType = "application/json; charset=utf-8"
+            $response.ContentLength64 = $infoBuf.Length
+            $response.OutputStream.Write($infoBuf, 0, $infoBuf.Length)
+            $response.Close()
+            continue
         }
 
         # 3.1. API XOA ANH IMAGEKIT (/api/imagekit/delete)

@@ -1084,6 +1084,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                     this._applyDeletionsAndRerender();
                                 }
                             }
+                            if (Array.isArray(cloudData.deletedImages) && cloudData.deletedImages.length > 0) {
+                                this.addDeletedImages(cloudData.deletedImages);
+                            }
                         }
 
                         if (Array.isArray(cloudMemories) && cloudMemories.length > 0) {
@@ -1188,13 +1191,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         mergeWithLocal(serverMemories) {
             const deletedIds = this.getDeletedIds();
+            const deletedImages = this.getDeletedImages();
             const localMemories = this.getAll();
             const map = new Map();
 
-            // Hàm lọc và làm sạch danh sách ảnh hợp lệ của 1 kỷ niệm
+            // Hàm lọc và làm sạch danh sách ảnh hợp lệ của 1 kỷ niệm (loại trừ triệt để ảnh đã bị xóa)
             const sanitizeImages = (rawImgs) => {
                 const arr = Array.isArray(rawImgs) ? rawImgs : (rawImgs ? [rawImgs] : []);
-                const clean = arr.filter(img => img && typeof img === 'string' && img.trim().length > 5 && !img.includes('undefined') && !img.includes('null'));
+                const clean = arr.filter(img => {
+                    if (!img || typeof img !== 'string') return false;
+                    const trimmed = img.trim();
+                    if (trimmed.length <= 5 || trimmed.includes('undefined') || trimmed.includes('null')) return false;
+                    const cleanUrl = trimmed.split('?')[0];
+                    if (deletedImages.includes(trimmed) || deletedImages.includes(cleanUrl)) return false;
+                    return true;
+                });
                 return clean.length > 0 ? clean : [window.FALLBACK_IMG_PLACEHOLDER];
             };
 
@@ -1211,7 +1222,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const existing = map.get(idStr);
                     const combined = [...sanitizeImages(existing.images || existing.image)];
                     for (const img of cleanImgs) {
-                        if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img)) {
+                        const cleanImgUrl = img.split('?')[0];
+                        if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img) && !deletedImages.includes(img) && !deletedImages.includes(cleanImgUrl)) {
                             combined.push(img);
                         }
                     }
@@ -1233,26 +1245,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     const cleanImgs = sanitizeImages(localItem.images || localItem.image);
                     map.set(idStr, { ...localItem, images: cleanImgs });
                 } else {
-                    // Kỷ niệm có ở cả 2: gộp danh sách ảnh để không bao giờ bị mất ảnh
+                    // Kỷ niệm có ở cả 2: So sánh thời gian chỉnh sửa để quyết định
                     const existing = map.get(idStr);
                     const serverImgs = sanitizeImages(existing.images || existing.image);
                     const localImgs = sanitizeImages(localItem.images || localItem.image);
 
-                    const combined = [...serverImgs];
-                    for (const img of localImgs) {
-                        if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img)) {
-                            combined.push(img);
-                        }
-                    }
-                    const cleanCombined = combined.filter(i => i && i !== window.FALLBACK_IMG_PLACEHOLDER);
-
                     const timeServer = new Date(existing.updatedAt || existing.date || existing.createdAt || 0).getTime() || 0;
                     const timeLocal = new Date(localItem.updatedAt || localItem.date || localItem.createdAt || 0).getTime() || 0;
+
+                    let finalImgs = [];
+                    if (timeLocal > timeServer) {
+                        // Người dùng vừa chỉnh sửa/xóa ảnh trên thiết bị này -> Ưu tiên danh sách ảnh local mới nhất!
+                        finalImgs = localImgs.filter(i => i && i !== window.FALLBACK_IMG_PLACEHOLDER);
+                    } else {
+                        // Server mới hơn hoặc bằng -> Gộp ảnh, nhưng BẮT BUỘC loại bỏ mọi ảnh đã xóa
+                        const combined = [...serverImgs];
+                        for (const img of localImgs) {
+                            const cleanImgUrl = img.split('?')[0];
+                            if (img && img !== window.FALLBACK_IMG_PLACEHOLDER && !combined.includes(img) && !deletedImages.includes(img) && !deletedImages.includes(cleanImgUrl)) {
+                                combined.push(img);
+                            }
+                        }
+                        finalImgs = combined.filter(i => i && i !== window.FALLBACK_IMG_PLACEHOLDER && !deletedImages.includes(i) && !deletedImages.includes(i.split('?')[0]));
+                    }
+
                     const baseItem = timeLocal > timeServer ? localItem : existing;
 
                     map.set(idStr, {
                         ...baseItem,
-                        images: cleanCombined.length > 0 ? cleanCombined : [window.FALLBACK_IMG_PLACEHOLDER]
+                        images: finalImgs.length > 0 ? finalImgs : [window.FALLBACK_IMG_PLACEHOLDER]
                     });
                 }
             }
@@ -6231,6 +6252,189 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    // =========================================================================
+    // 18. MODAL ĐỒNG BỘ THIẾT BỊ (MÃ QR CODE & SAO CHÉP LIÊN KẾT)
+    // =========================================================================
+    const SyncDeviceModal = {
+        modal: null,
+        currentMode: 'wifi', // 'wifi' | 'online'
+        wifiUrl: '',
+        onlineUrl: '',
+
+        async init() {
+            this.modal = document.getElementById('modal-sync-device');
+            if (!this.modal) return;
+
+            const btnOpen = document.getElementById('btn-open-sync-device');
+            const btnOpenFromSettings = document.getElementById('btn-open-sync-from-settings');
+            const btnClose = document.getElementById('close-modal-sync-device');
+            const btnDone = document.getElementById('btn-done-sync-device');
+            const tabWifi = document.getElementById('tab-sync-wifi');
+            const tabOnline = document.getElementById('tab-sync-online');
+            const btnCopy = document.getElementById('btn-copy-sync-url');
+            const btnReconcile = document.getElementById('btn-reconcile-sync-device');
+
+            if (btnOpen) btnOpen.addEventListener('click', () => this.open());
+            if (btnOpenFromSettings) btnOpenFromSettings.addEventListener('click', () => {
+                const settingsModal = document.getElementById('modal-settings');
+                if (settingsModal) settingsModal.classList.add('hidden');
+                this.open();
+            });
+            if (btnClose) btnClose.addEventListener('click', () => this.close());
+            if (btnDone) btnDone.addEventListener('click', () => this.close());
+            this.modal.addEventListener('click', (e) => {
+                if (e.target === this.modal) this.close();
+            });
+
+            if (tabWifi) tabWifi.addEventListener('click', () => this.switchMode('wifi'));
+            if (tabOnline) tabOnline.addEventListener('click', () => this.switchMode('online'));
+            if (btnCopy) btnCopy.addEventListener('click', () => this.copyUrl());
+            if (btnReconcile) btnReconcile.addEventListener('click', async () => {
+                btnReconcile.innerHTML = `<span>Đang dọn dẹp...</span>`;
+                try {
+                    await MemoryStore.reconcileImageKit();
+                    showSyncCountdownToast({
+                        title: 'Đã dọn dẹp ImageKit thành công!',
+                        detail: 'Toàn bộ ảnh mồ côi đã được rà soát và xóa sạch.',
+                        durationSeconds: 3
+                    });
+                } catch(e) {
+                    alert('Lỗi: ' + e.message);
+                } finally {
+                    btnReconcile.innerHTML = `🔄 Dọn Dẹp ImageKit Ngay`;
+                }
+            });
+        },
+
+        async open() {
+            if (!this.modal) return;
+            this.modal.classList.remove('hidden');
+
+            // Lấy thông tin server nếu đang kết nối
+            await this.fetchServerInfo();
+            this.switchMode(this.currentMode);
+        },
+
+        close() {
+            if (this.modal) this.modal.classList.add('hidden');
+        },
+
+        async fetchServerInfo() {
+            this.onlineUrl = 'https://tna9899.github.io/my-website/';
+            this.wifiUrl = window.location.href;
+
+            const endpoints = MemoryStore.getEndpoints('/api/info');
+            for (const ep of endpoints) {
+                try {
+                    const resp = await fetch(ep, { mode: 'cors', cache: 'no-store' });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data && data.status === 'ok') {
+                            if (data.wifiUrl) this.wifiUrl = data.wifiUrl;
+                            if (data.onlineUrl) this.onlineUrl = data.onlineUrl;
+                            if (data.cloudflareUrl) this.onlineUrl = data.cloudflareUrl;
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+        },
+
+        switchMode(mode) {
+            this.currentMode = mode;
+            const tabWifi = document.getElementById('tab-sync-wifi');
+            const tabOnline = document.getElementById('tab-sync-online');
+            const inputUrl = document.getElementById('sync-url-input');
+            const hint = document.getElementById('sync-url-hint');
+
+            let targetUrl = (mode === 'wifi') ? this.wifiUrl : this.onlineUrl;
+            if (!targetUrl) targetUrl = window.location.href;
+
+            if (mode === 'wifi') {
+                if (tabWifi) {
+                    tabWifi.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all shadow-xs bg-white text-rose-600 font-bold cursor-pointer';
+                }
+                if (tabOnline) {
+                    tabOnline.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all text-gray-600 hover:text-gray-900 cursor-pointer';
+                }
+                if (hint) {
+                    hint.textContent = '💡 Kết nối qua cùng mạng WiFi: Tốc độ tối đa, ảnh/video gốc tải siêu nhanh.';
+                }
+            } else {
+                if (tabOnline) {
+                    tabOnline.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all shadow-xs bg-white text-rose-600 font-bold cursor-pointer';
+                }
+                if (tabWifi) {
+                    tabWifi.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all text-gray-600 hover:text-gray-900 cursor-pointer';
+                }
+                if (hint) {
+                    hint.textContent = '🌐 Kết nối Đám Mây: Mở được mọi nơi qua 4G/5G hoặc bất kỳ mạng Internet nào.';
+                }
+            }
+
+            if (inputUrl) inputUrl.value = targetUrl;
+            this.renderQrCode(targetUrl);
+        },
+
+        renderQrCode(url) {
+            const container = document.getElementById('sync-qrcode-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            if (typeof QRCode !== 'undefined') {
+                try {
+                    new QRCode(container, {
+                        text: url,
+                        width: 176,
+                        height: 176,
+                        colorDark: '#e11d48',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                    return;
+                } catch (err) {
+                    console.warn('[QR Code] QRCode lib error, fallback to image:', err);
+                }
+            }
+
+            // Fallback nếu thư viện JS chưa nạp
+            const qrImg = document.createElement('img');
+            qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(url)}&color=e11d48`;
+            qrImg.alt = 'QR Code';
+            qrImg.className = 'w-full h-full object-contain rounded-xl';
+            container.appendChild(qrImg);
+        },
+
+        async copyUrl() {
+            const inputUrl = document.getElementById('sync-url-input');
+            const copyBtnText = document.getElementById('copy-btn-text');
+            if (!inputUrl) return;
+
+            const textToCopy = inputUrl.value;
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(textToCopy);
+                } else {
+                    inputUrl.select();
+                    document.execCommand('copy');
+                }
+
+                if (copyBtnText) copyBtnText.textContent = 'Đã chép! ✓';
+                showSyncCountdownToast({
+                    title: 'Đã sao chép liên kết thành công!',
+                    detail: 'Dán link vào tin nhắn Zalo/Messenger hoặc mở trên điện thoại 💕',
+                    durationSeconds: 3
+                });
+
+                setTimeout(() => {
+                    if (copyBtnText) copyBtnText.textContent = 'Sao Chép';
+                }, 2000);
+            } catch (err) {
+                alert('Không thể tự động sao chép. Bạn hãy chọn và copy thủ công link ở trên nhé!');
+            }
+        }
+    };
+
     initHeartCursorTrail();
     initScrollToTop();
 
@@ -6240,6 +6444,7 @@ document.addEventListener('DOMContentLoaded', () => {
     MemoryStore.initSync();
     ImageViewer.init();
     EditMemoryModal.init();
+    SyncDeviceModal.init();
     Logger.log('APP_READY', 'Hệ thống đã khởi tạo hoàn tất');
 });
 

@@ -11,6 +11,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
+const os = require('os');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const ROOT_DIR = __dirname;
@@ -263,6 +264,45 @@ async function cleanupImageKitOrphanedFiles() {
     }
 }
 
+function getLocalIp() {
+    try {
+        const interfaces = os.networkInterfaces();
+        for (const name of Object.keys(interfaces)) {
+            for (const iface of interfaces[name]) {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                    return iface.address;
+                }
+            }
+        }
+    } catch (e) {}
+    return '';
+}
+
+let lastCloudSyncTime = 0;
+async function syncCloudDeletions() {
+    const now = Math.floor(Date.now() / 1000);
+    if (now - lastCloudSyncTime < 25) return;
+    lastCloudSyncTime = now;
+
+    try {
+        const cloudUrl = `https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json?_t=${now}`;
+        const resp = await fetch(cloudUrl, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const cloudData = await resp.json();
+        if (!cloudData) return;
+
+        const delImages = Array.isArray(cloudData.deletedImages) ? cloudData.deletedImages : (cloudData.deletedImages ? [cloudData.deletedImages] : []);
+        if (delImages.length > 0) {
+            console.log(`[Auto-Sync] Phát hiện ${delImages.length} ảnh cần xóa trên ImageKit từ Cloud...`);
+            for (const img of delImages) {
+                if (img && typeof img === 'string' && img.includes('ik.imagekit.io')) {
+                    await deleteImageFromImageKit(img);
+                }
+            }
+        }
+    } catch (e) {}
+}
+
 // MIME Types tuong thich web tieu chuan (bao gom ca Apple HEIC, HEIF, WebP, AVIF)
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
@@ -334,6 +374,27 @@ const server = http.createServer(async (req, res) => {
 
     const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
+
+    // Auto-sync de xoa anh tren ImageKit tu Cloud
+    syncCloudDeletions().catch(() => {});
+
+    // =========================================================================
+    // 2.0. API THONG TIN KET NOI & DONG BO THIET BI (/api/info)
+    // =========================================================================
+    if (pathname === '/api/info' && req.method === 'GET') {
+        const localIp = getLocalIp();
+        const wifiUrl = localIp ? `http://${localIp}:${PORT}` : `http://localhost:${PORT}`;
+        const onlineUrl = 'https://tna9899.github.io/my-website/';
+        sendJSON(res, 200, {
+            status: 'ok',
+            port: PORT,
+            localIp: localIp,
+            wifiUrl: wifiUrl,
+            localUrl: `http://localhost:${PORT}`,
+            onlineUrl: onlineUrl
+        });
+        return;
+    }
 
     // =========================================================================
     // 2. API PHIEN BAN (/api/version) - Duoi 40 bytes, phan hoi duoi 0.5ms
