@@ -1958,8 +1958,6 @@ document.addEventListener('DOMContentLoaded', () => {
     navHome.addEventListener('click', () => switchTab('home'));
     navAdd.addEventListener('click', () => switchTab('add'));
     if (brandTitle) brandTitle.addEventListener('click', () => switchTab('home'));
-    const brandLogoContainer = document.getElementById('brand-logo-container');
-    if (brandLogoContainer) brandLogoContainer.addEventListener('click', () => switchTab('home'));
     emptyAddBtn.addEventListener('click', () => switchTab('add'));
 
     // Menu 3 gạch (Hamburger)
