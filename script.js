@@ -58,6 +58,24 @@ if (!window.isVideoUrl) {
     };
 }
 
+if (!window.getOptimizedVideoUrl) {
+    window.getOptimizedVideoUrl = function(url) {
+        if (!url || typeof url !== 'string') return '';
+        if (url.startsWith('data:video/')) return url;
+        // Tự động tối ưu video ImageKit sang chuẩn MP4 (H.264/AAC) tương thích 100% mọi điện thoại di động
+        if (url.includes('ik.imagekit.io')) {
+            const clean = url.split('?')[0].split('#')[0].toLowerCase();
+            if (/\.(mov|m4v|quicktime)$/i.test(clean) || url.includes('/vid_')) {
+                if (!url.includes('tr=') && !url.includes('/tr:')) {
+                    const sep = url.includes('?') ? '&' : '?';
+                    return `${url}${sep}tr=f-mp4`;
+                }
+            }
+        }
+        return url;
+    };
+}
+
 if (!window.readFileAsDataURL) {
     window.readFileAsDataURL = function(file) {
         return new Promise((resolve, reject) => {
@@ -2726,6 +2744,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         autoSlideIntervals[memoryId] = setInterval(() => {
             const currentIdx = carouselState[memoryId] || 0;
+            // Kiểm tra nếu thẻ hiện tại đang phát video thì không tự động chuyển
+            const stage = document.getElementById(`stacked-stage-${memoryId}`);
+            if (stage) {
+                const currentCard = stage.querySelector(`.stacked-card[data-card-idx="${currentIdx}"]`);
+                const activeVid = currentCard ? currentCard.querySelector('video') : null;
+                if (activeVid && (!activeVid.paused || activeVid.currentTime > 0)) {
+                    return; // Đang xem video, giữ nguyên thẻ
+                }
+            }
             const nextIdx = (currentIdx + 1) % totalImages;
             slideTo(memoryId, nextIdx, totalImages, false);
         }, 2000); // Tự động chuyển ảnh cách nhau 2 giây
@@ -2927,17 +2954,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         <!-- Sân khấu hiển thị các ảnh xếp chồng cách nhau 0.5cm -->
                         <div class="stacked-deck-stage" id="stacked-stage-${memoryId}">
-                            ${images.map((imgSrc, imgIdx) => `
+                            ${images.map((imgSrc, imgIdx) => {
+                                const isVid = window.isVideoUrl(imgSrc);
+                                const optSrc = isVid ? window.getOptimizedVideoUrl(imgSrc) : imgSrc;
+                                return `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
-                                    <div class="stacked-card-frame cursor-zoom-in" data-img-idx="${imgIdx}" title="Bấm vào để phóng to xem chi tiết">
-                                        ${window.isVideoUrl(imgSrc) ? `
-                                            <video src="${imgSrc}" controls playsinline preload="metadata" class="w-full h-full object-cover rounded-2xl bg-black"></video>
+                                    <div class="stacked-card-frame cursor-zoom-in relative group" data-img-idx="${imgIdx}" title="${isVid ? 'Bấm vào để xem video phóng to' : 'Bấm vào để phóng to xem chi tiết'}">
+                                        ${isVid ? `
+                                            <video src="${optSrc}" playsinline webkit-playsinline preload="metadata" class="w-full h-full object-cover rounded-2xl bg-black pointer-events-none"></video>
+                                            <div class="absolute inset-0 bg-black/25 flex flex-col items-center justify-center rounded-2xl transition-all group-hover:bg-black/15 pointer-events-none">
+                                                <div class="w-13 h-13 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">
+                                                        <path d="M8 5v14l11-7z"/>
+                                                    </svg>
+                                                </div>
+                                                <span class="mt-2 text-xs font-semibold text-white/95 bg-black/50 px-2.5 py-0.5 rounded-full backdrop-blur-xs">Bấm để xem video</span>
+                                            </div>
                                         ` : `
                                             <img src="${imgSrc}" alt="" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
                                         `}
                                     </div>
                                 </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
 
                         <!-- 2 Nút Mũi Tên Chuyển Ảnh Trái & Phải -->
@@ -2963,9 +3002,16 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (totalImages === 1) {
                 // Hiển thị 1 ảnh / video FULL tỷ lệ
                 if (window.isVideoUrl(images[0])) {
+                    const videoSrc = window.getOptimizedVideoUrl(images[0]);
                     mediaMarkup = `
-                        <div class="single-photo-frame w-full bg-black/90 overflow-hidden flex items-center justify-center p-3 rounded-2xl" data-single-frame="${memoryId}">
-                            <video src="${images[0]}" controls playsinline preload="metadata" class="w-full max-h-[620px] rounded-2xl block bg-black shadow-md"></video>
+                        <div class="single-photo-frame w-full bg-black/95 overflow-hidden relative rounded-2xl flex items-center justify-center p-2 group" data-single-frame="${memoryId}">
+                            <video src="${videoSrc}" controls playsinline webkit-playsinline preload="metadata" class="w-full max-h-[620px] rounded-2xl block bg-black shadow-md object-contain"></video>
+                            <button type="button" class="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80 text-white p-2.5 rounded-full backdrop-blur-md transition-all shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-medium cursor-pointer" data-expand-video="${memoryId}" title="Phóng to toàn màn hình">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                </svg>
+                                <span class="hidden sm:inline">Phóng to</span>
+                            </button>
                         </div>
                     `;
                 } else {
@@ -3053,69 +3099,85 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (totalImages === 1) {
                 const singleFrame = card.querySelector(`[data-single-frame="${memoryId}"]`);
                 if (singleFrame) {
-                    let sStartX = 0;
-                    let sStartY = 0;
-                    let sHasMoved = false;
-                    let sRafId = null;
-                    const singleImg = singleFrame.querySelector('img');
-
-                    singleFrame.addEventListener('touchstart', (e) => {
-                        if (!e.touches || e.touches.length !== 1) return;
-                        sStartX = e.touches[0].clientX;
-                        sStartY = e.touches[0].clientY;
-                        sHasMoved = false;
-                    }, { passive: true });
-
-                    singleFrame.addEventListener('touchmove', (e) => {
-                        // Chặn cuộn trang xuống/lên khi chạm trên khu vực ảnh đơn
-                        if (e.cancelable) e.preventDefault();
-                        if (!e.touches || e.touches.length !== 1) return;
-                        const clientX = e.touches[0].clientX;
-                        const clientY = e.touches[0].clientY;
-
-                        // Dùng requestAnimationFrame để giới hạn tần suất xử lý cử chỉ vuốt chạm
-                        if (!sRafId) {
-                            sRafId = requestAnimationFrame(() => {
-                                sRafId = null;
-                                const diffX = clientX - sStartX;
-                                const diffY = clientY - sStartY;
-                                if (Math.abs(diffX) > 6 || Math.abs(diffY) > 6) {
-                                    sHasMoved = true;
+                    const isVideo = window.isVideoUrl(images[0]);
+                    if (isVideo) {
+                        const vidElem = singleFrame.querySelector('video');
+                        const expandBtn = singleFrame.querySelector(`[data-expand-video="${memoryId}"]`);
+                        if (expandBtn) {
+                            expandBtn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                if (vidElem) {
+                                    try { vidElem.pause(); } catch(err){}
                                 }
-                                if (singleImg && sHasMoved) {
-                                    singleImg.style.transition = 'none';
-                                    singleImg.style.transform = `translateX(${diffX * 0.25}px)`;
-                                }
+                                const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
+                                ImageViewer.open(images, 0, item.content, sub);
                             });
                         }
-                    }, { passive: false });
+                    } else {
+                        let sStartX = 0;
+                        let sStartY = 0;
+                        let sHasMoved = false;
+                        let sRafId = null;
+                        const singleImg = singleFrame.querySelector('img');
 
-                    singleFrame.addEventListener('touchend', () => {
-                        if (sRafId) {
-                            cancelAnimationFrame(sRafId);
-                            sRafId = null;
-                        }
-                        if (singleImg) {
-                            singleImg.style.transition = 'transform 0.3s ease';
-                            singleImg.style.transform = 'none';
-                        }
-                        if (sHasMoved) {
-                            const suppressClick = (ev) => {
-                                ev.stopPropagation();
-                                ev.preventDefault();
-                            };
-                            singleFrame.addEventListener('click', suppressClick, { capture: true, once: true });
-                            setTimeout(() => {
-                                singleFrame.removeEventListener('click', suppressClick, { capture: true });
-                            }, 350);
-                        }
-                    }, { passive: false });
+                        singleFrame.addEventListener('touchstart', (e) => {
+                            if (!e.touches || e.touches.length !== 1) return;
+                            sStartX = e.touches[0].clientX;
+                            sStartY = e.touches[0].clientY;
+                            sHasMoved = false;
+                        }, { passive: true });
 
-                    singleFrame.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
-                        ImageViewer.open(images, 0, item.content, sub);
-                    });
+                        singleFrame.addEventListener('touchmove', (e) => {
+                            // Chặn cuộn trang xuống/lên khi chạm trên khu vực ảnh đơn
+                            if (e.cancelable) e.preventDefault();
+                            if (!e.touches || e.touches.length !== 1) return;
+                            const clientX = e.touches[0].clientX;
+                            const clientY = e.touches[0].clientY;
+
+                            // Dùng requestAnimationFrame để giới hạn tần suất xử lý cử chỉ vuốt chạm
+                            if (!sRafId) {
+                                sRafId = requestAnimationFrame(() => {
+                                    sRafId = null;
+                                    const diffX = clientX - sStartX;
+                                    const diffY = clientY - sStartY;
+                                    if (Math.abs(diffX) > 6 || Math.abs(diffY) > 6) {
+                                        sHasMoved = true;
+                                    }
+                                    if (singleImg && sHasMoved) {
+                                        singleImg.style.transition = 'none';
+                                        singleImg.style.transform = `translateX(${diffX * 0.25}px)`;
+                                    }
+                                });
+                            }
+                        }, { passive: false });
+
+                        singleFrame.addEventListener('touchend', () => {
+                            if (sRafId) {
+                                cancelAnimationFrame(sRafId);
+                                sRafId = null;
+                            }
+                            if (singleImg) {
+                                singleImg.style.transition = 'transform 0.3s ease';
+                                singleImg.style.transform = 'none';
+                            }
+                            if (sHasMoved) {
+                                const suppressClick = (ev) => {
+                                    ev.stopPropagation();
+                                    ev.preventDefault();
+                                };
+                                singleFrame.addEventListener('click', suppressClick, { capture: true, once: true });
+                                setTimeout(() => {
+                                    singleFrame.removeEventListener('click', suppressClick, { capture: true });
+                                }, 350);
+                            }
+                        }, { passive: false });
+
+                        singleFrame.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const sub = item.location ? `${dateDisplay} • ${item.location}` : dateDisplay;
+                            ImageViewer.open(images, 0, item.content, sub);
+                        });
+                    }
                 }
             }
 
@@ -5564,6 +5626,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnClose: null,
         btnPrev: null,
         btnNext: null,
+        imageTools: null,
+        playOverlay: null,
 
         init() {
             this.modal = document.getElementById('modal-image-viewer');
@@ -5572,6 +5636,28 @@ document.addEventListener('DOMContentLoaded', () => {
             this.stage = document.getElementById('viewer-stage');
             this.img = document.getElementById('viewer-image');
             this.video = document.getElementById('viewer-video');
+            this.imageTools = document.getElementById('viewer-image-tools');
+            this.playOverlay = document.getElementById('viewer-video-play-overlay');
+
+            if (this.playOverlay) {
+                this.playOverlay.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (this.video) {
+                        this.video.play().then(() => {
+                            if (this.playOverlay) this.playOverlay.classList.add('hidden');
+                        }).catch(err => {
+                            console.error('[ImageViewer] Lỗi phát video:', err);
+                        });
+                    }
+                });
+            }
+
+            if (this.video) {
+                this.video.addEventListener('play', () => {
+                    if (this.playOverlay) this.playOverlay.classList.add('hidden');
+                });
+            }
+
             if (this.img) {
                 this.img.onerror = () => {
                     this.img.src = window.FALLBACK_IMG_PLACEHOLDER;
@@ -5706,6 +5792,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.video.style.display = 'none';
                 this.video.classList.add('hidden');
             }
+            if (this.playOverlay) this.playOverlay.classList.add('hidden');
+            if (this.imageTools) this.imageTools.style.display = 'flex';
             if (this.modal) {
                 this.modal.classList.remove('is-open');
                 setTimeout(() => {
@@ -5773,13 +5861,32 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.img.style.opacity = '0';
                 }
                 if (this.loader) this.loader.classList.add('hidden');
+                if (this.imageTools) this.imageTools.style.display = 'none'; // Ẩn zoom/xoay cho video
                 if (this.video) {
                     this.video.style.display = 'block';
                     this.video.classList.remove('hidden');
-                    this.video.src = currentSrc;
+                    
+                    const optUrl = window.getOptimizedVideoUrl(currentSrc);
+                    if (this.video.src !== optUrl) {
+                        this.video.src = optUrl;
+                        this.video.load(); // Bắt buộc cho Safari iOS nạp luồng video mới
+                    }
+
+                    if (this.playOverlay) this.playOverlay.classList.add('hidden');
+
+                    // Thử tự động phát video ngay khi mở
+                    const playPromise = this.video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(err => {
+                            console.log('[ImageViewer] Tự động phát bị chặn bởi hệ điều hành, sẵn sàng nút Play:', err);
+                            if (this.playOverlay) this.playOverlay.classList.remove('hidden');
+                        });
+                    }
                 }
                 return;
             } else {
+                if (this.imageTools) this.imageTools.style.display = 'flex';
+                if (this.playOverlay) this.playOverlay.classList.add('hidden');
                 if (this.video) {
                     try { this.video.pause(); } catch(e){}
                     this.video.style.display = 'none';
@@ -5932,6 +6039,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Kéo ảnh trên máy tính (Pan / Drag)
         onMouseDown(e) {
             if (!this.isOpen || e.button !== 0) return;
+            if (this.video && this.video.style.display !== 'none' && !this.video.classList.contains('hidden')) {
+                if (e.target === this.video || this.video.contains(e.target) || (this.playOverlay && this.playOverlay.contains(e.target))) {
+                    return;
+                }
+            }
             this.isDragging = true;
             this.hasDragged = false;
             this.dragStartX = e.clientX - this.translateX;
@@ -5967,6 +6079,13 @@ document.addEventListener('DOMContentLoaded', () => {
         onTouchStart(e) {
             if (!this.isOpen) return;
 
+            // Nếu chạm trên video hoặc nút phát video, không chặn để video nhận điều khiển
+            if (this.video && this.video.style.display !== 'none' && !this.video.classList.contains('hidden')) {
+                if (e.target === this.video || this.video.contains(e.target) || (this.playOverlay && this.playOverlay.contains(e.target))) {
+                    return;
+                }
+            }
+
             if (e.touches.length === 2) {
                 // 2 ngón tay: Bắt đầu Pinch to Zoom
                 this.touchMode = 'pinch';
@@ -6001,6 +6120,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         onTouchMove(e) {
             if (!this.isOpen) return;
+
+            if (this.video && this.video.style.display !== 'none' && !this.video.classList.contains('hidden')) {
+                if (e.target === this.video || this.video.contains(e.target) || (this.playOverlay && this.playOverlay.contains(e.target))) {
+                    return;
+                }
+            }
 
             if (this.touchMode === 'pinch' && e.touches.length === 2) {
                 e.preventDefault();

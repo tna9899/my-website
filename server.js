@@ -285,6 +285,10 @@ const MIME_TYPES = {
     '.txt': 'text/plain; charset=utf-8',
     '.mp3': 'audio/mpeg',
     '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.m4v': 'video/mp4',
+    '.webm': 'video/webm',
+    '.avi': 'video/x-msvideo',
     '.avif': 'image/avif'
 };
 
@@ -688,13 +692,43 @@ const server = http.createServer(async (req, res) => {
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
         const isImage = ext === '.jpg' || ext === '.jpeg' || ext === '.png' || ext === '.webp' || ext === '.gif';
         const isText = ext === '.html' || ext === '.css' || ext === '.js' || ext === '.json' || ext === '.svg';
+        const isVideo = ext === '.mp4' || ext === '.mov' || ext === '.webm' || ext === '.m4v';
 
         const headers = {
             'Content-Type': contentType
         };
 
-        if (isImage) {
-            headers['Cache-Control'] = 'public, max-age=86400'; // Cache anh 1 ngay de tai sieu nhanh
+        // Hỗ trợ truyền phát Video từng phần (HTTP 206 Partial Content) cho iPhone iOS Safari & Android
+        if (isVideo || req.headers.range) {
+            headers['Accept-Ranges'] = 'bytes';
+            const range = req.headers.range;
+            if (range) {
+                const parts = range.replace(/bytes=/, "").split("-");
+                const start = parseInt(parts[0], 10);
+                const end = parts[1] ? parseInt(parts[1], 10) : stats.size - 1;
+
+                if (start >= stats.size || end >= stats.size || start > end) {
+                    res.writeHead(416, {
+                        'Content-Range': `bytes */${stats.size}`
+                    });
+                    res.end();
+                    return;
+                }
+
+                const chunksize = (end - start) + 1;
+                headers['Content-Range'] = `bytes ${start}-${end}/${stats.size}`;
+                headers['Content-Length'] = chunksize;
+                headers['Cache-Control'] = 'public, max-age=86400';
+
+                res.writeHead(206, headers);
+                const stream = fs.createReadStream(filePath, { start, end });
+                stream.pipe(res);
+                return;
+            }
+        }
+
+        if (isImage || isVideo) {
+            headers['Cache-Control'] = 'public, max-age=86400'; // Cache anh & video 1 ngay de tai sieu nhanh
         } else {
             headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
             headers['Pragma'] = 'no-cache';

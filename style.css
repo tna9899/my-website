@@ -219,7 +219,7 @@ body.theme-applied {
     position: relative;
 }
 
-.stacked-card-frame img, .stacked-card-frame video {
+.stacked-card-frame img {
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -228,6 +228,16 @@ body.theme-applied {
     display: block;
     user-select: none;
     pointer-events: none;
+}
+
+.stacked-card-frame video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0.9rem;
+    background-color: #000000;
+    display: block;
+    user-select: none;
 }
 
 /* Nút điều hướng Carousel */
@@ -716,10 +726,8 @@ svg.vn-map path.active-province {
 
 .single-photo-frame {
     cursor: zoom-in;
-    touch-action: none;
     user-select: none;
     -webkit-user-select: none;
-    overscroll-behavior: contain;
 }
 
 .single-photo-frame:hover img {

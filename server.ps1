@@ -722,12 +722,52 @@ while ($listener.IsListening) {
                     $response.ContentType = "image/tiff"
                     $response.Headers.Add("Cache-Control", "public, max-age=86400")
                 }
+                ".mp4" { 
+                    $response.ContentType = "video/mp4"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".mov" { 
+                    $response.ContentType = "video/quicktime"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".m4v" { 
+                    $response.ContentType = "video/mp4"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".webm" { 
+                    $response.ContentType = "video/webm"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
                 default { $response.ContentType = "application/octet-stream" }
             }
 
-            $response.StatusCode = 200
-            $response.ContentLength64 = $bytes.Length
-            $response.OutputStream.Write($bytes, 0, $bytes.Length)
+            # Ho tro truyen phat Video tung phan (HTTP 206 Partial Content) cho iPhone Safari va Android
+            $isVid = $ext -in @(".mp4", ".mov", ".m4v", ".webm")
+            $rangeHeader = $request.Headers["Range"]
+            if ($isVid -or $rangeHeader) {
+                $response.Headers.Add("Accept-Ranges", "bytes")
+            }
+
+            if ($rangeHeader -and $rangeHeader -match 'bytes=(\d+)-(\d*)') {
+                $fileLen = $bytes.Length
+                $start = [int64]$Matches[1]
+                $end = if ($Matches[2]) { [int64]$Matches[2] } else { $fileLen - 1 }
+                if ($start -ge $fileLen -or $end -ge $fileLen -or $start -gt $end) {
+                    $response.StatusCode = 416
+                    $response.Headers.Add("Content-Range", "bytes */$fileLen")
+                    $response.Close()
+                    continue
+                }
+                $chunkLen = ($end - $start) + 1
+                $response.StatusCode = 206
+                $response.Headers.Add("Content-Range", "bytes $start-$end/$fileLen")
+                $response.ContentLength64 = $chunkLen
+                $response.OutputStream.Write($bytes, [int]$start, [int]$chunkLen)
+            } else {
+                $response.StatusCode = 200
+                $response.ContentLength64 = $bytes.Length
+                $response.OutputStream.Write($bytes, 0, $bytes.Length)
+            }
         } elseif ($isUploads) {
             # Neu file anh trong uploads khong ton tai hoac bi 0 byte, tra ve anh SVG lang man mac dinh (tranh 100% dau hoi cham va vo anh)
             $svgBytes = $null

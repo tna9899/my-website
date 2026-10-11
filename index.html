@@ -1259,37 +1259,39 @@
 
             <!-- Các nút điều khiển phóng to / thu nhỏ / xoay / tải / đóng -->
             <div class="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
-                <!-- Nút Thu nhỏ (-) -->
-                <button id="viewer-btn-zoom-out" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Thu nhỏ (-)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M20 12H4" />
-                    </svg>
-                </button>
+                <div id="viewer-image-tools" class="flex items-center space-x-1 sm:space-x-2">
+                    <!-- Nút Thu nhỏ (-) -->
+                    <button id="viewer-btn-zoom-out" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Thu nhỏ (-)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M20 12H4" />
+                        </svg>
+                    </button>
 
-                <!-- Nút Đặt lại kích thước (100% / Vừa màn hình) -->
-                <button id="viewer-btn-zoom-reset" class="px-2.5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer" title="Kích thước gốc / Vừa màn hình (Nhấp đúp hoặc phím 0)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                    </svg>
-                    <span class="hidden md:inline">Vừa vặn</span>
-                </button>
+                    <!-- Nút Đặt lại kích thước (100% / Vừa màn hình) -->
+                    <button id="viewer-btn-zoom-reset" class="px-2.5 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer" title="Kích thước gốc / Vừa màn hình (Nhấp đúp hoặc phím 0)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        <span class="hidden md:inline">Vừa vặn</span>
+                    </button>
 
-                <!-- Nút Phóng to (+) -->
-                <button id="viewer-btn-zoom-in" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Phóng to (+)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4" />
-                    </svg>
-                </button>
+                    <!-- Nút Phóng to (+) -->
+                    <button id="viewer-btn-zoom-in" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Phóng to (+)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4v16m8-8H4" />
+                        </svg>
+                    </button>
 
-                <!-- Nút Xoay ảnh (90 độ) -->
-                <button id="viewer-btn-rotate" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Xoay ảnh 90° (phím R)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                </button>
+                    <!-- Nút Xoay ảnh (90 độ) -->
+                    <button id="viewer-btn-rotate" class="p-2 sm:p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white transition-all cursor-pointer" title="Xoay ảnh 90° (phím R)">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
+                </div>
 
-                <!-- Nút Tải ảnh gốc -->
-                <a id="viewer-btn-download" href="#" download="ky-niem-tinh-yeu.jpg" class="p-2 sm:p-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 active:scale-95 text-white transition-all flex items-center space-x-1 cursor-pointer" title="Tải ảnh độ phân giải gốc về máy" target="_blank" rel="noopener noreferrer">
+                <!-- Nút Tải ảnh/video gốc -->
+                <a id="viewer-btn-download" href="#" download="ky-niem-tinh-yeu.jpg" class="p-2 sm:p-2.5 rounded-xl bg-rose-600/80 hover:bg-rose-600 active:scale-95 text-white transition-all flex items-center space-x-1 cursor-pointer" title="Tải ảnh / video độ phân giải gốc về máy" target="_blank" rel="noopener noreferrer">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
@@ -1305,10 +1307,19 @@
         </header>
 
         <!-- Sân khấu chính hiển thị ảnh / video (Khu vực có thể Zoom, Pan, Drag) -->
-        <main id="viewer-stage" class="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center select-none touch-none">
+        <main id="viewer-stage" class="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center select-none">
             <img id="viewer-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Ảnh kỷ niệm phóng to" class="max-w-none max-h-none block select-none pointer-events-auto transition-all will-change-transform opacity-0" draggable="false" onerror="this.onerror=null; if(window.FALLBACK_IMG_PLACEHOLDER) this.src=window.FALLBACK_IMG_PLACEHOLDER;">
-            <video id="viewer-video" class="max-w-[95vw] max-h-[85vh] rounded-2xl hidden select-none pointer-events-auto z-10 bg-black shadow-2xl" controls playsinline></video>
+            <video id="viewer-video" class="max-w-[95vw] max-h-[85vh] rounded-2xl hidden select-none pointer-events-auto z-20 bg-black shadow-2xl" controls playsinline webkit-playsinline preload="auto"></video>
             
+            <!-- Nút Play to ở giữa cho Video trên điện thoại khi bị chặn autoplay -->
+            <div id="viewer-video-play-overlay" class="absolute inset-0 flex items-center justify-center z-30 pointer-events-auto hidden cursor-pointer" title="Bấm để phát video">
+                <button type="button" class="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-rose-600/90 hover:bg-rose-600 active:scale-95 text-white flex items-center justify-center shadow-2xl transition-all border-2 border-white/60 backdrop-blur-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 sm:w-10 sm:h-10 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                </button>
+            </div>
+
             <!-- Vòng quay tải ảnh nếu ảnh phân giải cực cao đang load -->
             <div id="viewer-loader" class="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
                 <div class="w-12 h-12 border-4 border-rose-400 border-t-transparent rounded-full animate-spin"></div>
