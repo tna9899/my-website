@@ -666,6 +666,14 @@ while ($listener.IsListening) {
                     $response.ContentType = "application/json; charset=utf-8"
                     $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
                 }
+                ".webmanifest" {
+                    $response.ContentType = "application/manifest+json; charset=utf-8"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
+                ".ico"  { 
+                    $response.ContentType = "image/x-icon"
+                    $response.Headers.Add("Cache-Control", "public, max-age=86400")
+                }
                 ".png"  { 
                     $response.ContentType = "image/png"
                     $response.Headers.Add("Cache-Control", "public, max-age=86400")

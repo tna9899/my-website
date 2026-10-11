@@ -987,74 +987,31 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSyncStatusUI('syncing');
 
             let updated = false;
-            // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
+            const allRemoteMemories = [];
+
             try {
-                const fbDbUrl = (window.firebaseConfig && window.firebaseConfig.databaseURL) 
-                    || 'https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app';
-                
-                const [fbMemResp, fbDelResp] = await Promise.all([
-                    fetch(`${fbDbUrl}/memories.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null),
-                    fetch(`${fbDbUrl}/deletedIds.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null)
-                ]);
+                // 0. Nguồn 0: Google Firebase Realtime Database REST API (Trực tiếp, siêu tốc <100ms, không phụ thuộc SDK)
+                try {
+                    const fbDbUrl = (window.firebaseConfig && window.firebaseConfig.databaseURL) 
+                        || 'https://anhuyen-e8d70-default-rtdb.asia-southeast1.firebasedatabase.app';
+                    
+                    const [fbMemResp, fbDelResp] = await Promise.all([
+                        fetch(`${fbDbUrl}/memories.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null),
+                        fetch(`${fbDbUrl}/deletedIds.json?_t=${Date.now()}`, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache, no-store' } }).catch(() => null)
+                    ]);
 
-                if (fbDelResp && fbDelResp.ok) {
-                    const fbDelData = await fbDelResp.json().catch(() => null);
-                    let fbDelList = [];
-                    if (Array.isArray(fbDelData)) fbDelList = fbDelData;
-                    else if (fbDelData && typeof fbDelData === 'object') fbDelList = Object.values(fbDelData);
+                    if (fbDelResp && fbDelResp.ok) {
+                        const fbDelData = await fbDelResp.json().catch(() => null);
+                        let fbDelList = [];
+                        if (Array.isArray(fbDelData)) fbDelList = fbDelData;
+                        else if (fbDelData && typeof fbDelData === 'object') fbDelList = Object.values(fbDelData);
 
-                    if (fbDelList.length > 0) {
-                        let hasNewDeletions = false;
-                        const currentDel = this.getDeletedIds();
-                        for (const dId of fbDelList) {
-                            const idStr = String(dId);
-                            if (idStr && !currentDel.includes(idStr)) {
-                                this.addDeletedId(idStr);
-                                hasNewDeletions = true;
-                            }
-                        }
-                        if (hasNewDeletions) {
-                            this._applyDeletionsAndRerender();
-                        }
-                    }
-                }
-
-                if (fbMemResp && fbMemResp.ok) {
-                    const fbMemData = await fbMemResp.json().catch(() => null);
-                    let fbList = [];
-                    if (Array.isArray(fbMemData)) fbList = fbMemData;
-                    else if (fbMemData && typeof fbMemData === 'object') fbList = Object.values(fbMemData);
-
-                    if (fbList.length > 0) {
-                        allRemoteMemories.push(...fbList);
-                    }
-                }
-            } catch (fbErr) {
-                console.warn('[Cloud Sync] Firebase REST fetch:', fbErr.message);
-            }
-
-            // 1. Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều tức thì trên CDN)
-            try {
-                const ikUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitJsonUrl) 
-                    || 'https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json';
-                const ikResp = await fetch(`${ikUrl}?_t=${Date.now()}`, {
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache, no-store' }
-                });
-
-                if (ikResp.ok) {
-                    const cloudData = await ikResp.json();
-                    let cloudMemories = [];
-                    if (Array.isArray(cloudData)) {
-                        cloudMemories = cloudData;
-                    } else if (cloudData && Array.isArray(cloudData.memories)) {
-                        cloudMemories = cloudData.memories;
-                        if (Array.isArray(cloudData.deletedIds)) {
+                        if (fbDelList.length > 0) {
                             let hasNewDeletions = false;
                             const currentDel = this.getDeletedIds();
-                            for (const dId of cloudData.deletedIds) {
+                            for (const dId of fbDelList) {
                                 const idStr = String(dId);
-                                if (!currentDel.includes(idStr)) {
+                                if (idStr && !currentDel.includes(idStr)) {
                                     this.addDeletedId(idStr);
                                     hasNewDeletions = true;
                                 }
@@ -1065,101 +1022,149 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     }
 
-                    if (Array.isArray(cloudMemories) && cloudMemories.length > 0) {
-                        allRemoteMemories.push(...cloudMemories);
-                    }
-                }
-            } catch (ikErr) {
-                console.warn('[Cloud Sync] ImageKit fetch:', ikErr.message);
-            }
+                    if (fbMemResp && fbMemResp.ok) {
+                        const fbMemData = await fbMemResp.json().catch(() => null);
+                        let fbList = [];
+                        if (Array.isArray(fbMemData)) fbList = fbMemData;
+                        else if (fbMemData && typeof fbMemData === 'object') fbList = Object.values(fbMemData);
 
-            // 2. Nguồn 2: GitHub Raw contents (Luôn đồng bộ song song để nhận ngay khi máy tính push lên GitHub)
-            try {
-                const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
-                const ghResp = await fetch(ghRawUrl, {
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache, no-store' }
-                });
-                if (ghResp.ok) {
-                    const ghMemories = await ghResp.json();
-                    if (Array.isArray(ghMemories) && ghMemories.length > 0) {
-                        allRemoteMemories.push(...ghMemories);
+                        if (fbList.length > 0) {
+                            allRemoteMemories.push(...fbList);
+                        }
                     }
+                } catch (fbErr) {
+                    console.warn('[Cloud Sync] Firebase REST fetch:', fbErr.message);
                 }
-            } catch (ghErr) {}
 
-            // 3. Nguồn 3: Local Node API (Chỉ khi chạy cục bộ localhost:8080)
-            const endpoints = this.getEndpoints('/api/memories');
-            for (const ep of endpoints) {
+                // 1. Nguồn 1: ImageKit Cloud Storage (Tự động 2 chiều tức thì trên CDN)
                 try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 2000);
-                    const resp = await fetch(`${ep}?_t=${Date.now()}`, {
-                        mode: 'cors',
+                    const ikUrl = (window.githubSyncConfig && window.githubSyncConfig.imageKitJsonUrl) 
+                        || 'https://ik.imagekit.io/anhuyen/anhuyen_sync/memories_cloud.json';
+                    const ikResp = await fetch(`${ikUrl}?_t=${Date.now()}`, {
                         cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache, no-store' },
-                        signal: controller.signal
+                        headers: { 'Cache-Control': 'no-cache, no-store' }
                     });
-                    clearTimeout(timeoutId);
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        const serverMemories = Array.isArray(data) ? data : (data.memories || []);
-                        if (data && Array.isArray(data.deletedIds)) {
-                            let hasNewDeletions = false;
-                            const currentDel = this.getDeletedIds();
-                            for (const dId of data.deletedIds) {
-                                const idStr = String(dId);
-                                if (!currentDel.includes(idStr)) {
-                                    this.addDeletedId(idStr);
-                                    hasNewDeletions = true;
+
+                    if (ikResp.ok) {
+                        const cloudData = await ikResp.json();
+                        let cloudMemories = [];
+                        if (Array.isArray(cloudData)) {
+                            cloudMemories = cloudData;
+                        } else if (cloudData && Array.isArray(cloudData.memories)) {
+                            cloudMemories = cloudData.memories;
+                            if (Array.isArray(cloudData.deletedIds)) {
+                                let hasNewDeletions = false;
+                                const currentDel = this.getDeletedIds();
+                                for (const dId of cloudData.deletedIds) {
+                                    const idStr = String(dId);
+                                    if (!currentDel.includes(idStr)) {
+                                        this.addDeletedId(idStr);
+                                        hasNewDeletions = true;
+                                    }
+                                }
+                                if (hasNewDeletions) {
+                                    this._applyDeletionsAndRerender();
                                 }
                             }
-                            if (hasNewDeletions) {
-                                this._applyDeletionsAndRerender();
-                            }
                         }
-                        if (Array.isArray(serverMemories) && serverMemories.length > 0) {
-                            allRemoteMemories.push(...serverMemories);
-                            break;
+
+                        if (Array.isArray(cloudMemories) && cloudMemories.length > 0) {
+                            allRemoteMemories.push(...cloudMemories);
                         }
                     }
-                } catch (e) {}
-            }
-
-            // 4. Nguồn 4: memories.json tĩnh tương đối dự phòng
-            if (allRemoteMemories.length === 0) {
-                try {
-                    const resp = await fetch(`memories.json?_t=${Date.now()}`);
-                    if (resp.ok) {
-                        const staticMemories = await resp.json();
-                        if (Array.isArray(staticMemories) && staticMemories.length > 0) {
-                            allRemoteMemories.push(...staticMemories);
-                        }
-                    }
-                } catch (e) {}
-            }
-
-            // 5. Gộp thông minh tất cả nguồn từ xa với bộ nhớ máy khách (Smart Merge)
-            if (allRemoteMemories.length > 0) {
-                const merged = this.mergeWithLocal(allRemoteMemories);
-                this._cache = merged;
-                try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
-                try { await IDBStorage.saveAll(merged); } catch (e) {}
-
-                if (typeof renderMemories === 'function') renderMemories();
-                if (typeof renderVietnamMap === 'function') renderVietnamMap();
-
-                // Tự động đẩy phiên bản gộp mới nhất lên ImageKit để các máy khác cập nhật theo
-                if (merged.length > 0) {
-                    setTimeout(() => this.syncToImageKit(merged), 800);
+                } catch (ikErr) {
+                    console.warn('[Cloud Sync] ImageKit fetch:', ikErr.message);
                 }
 
-                updated = true;
+                // 2. Nguồn 2: GitHub Raw contents (Luôn đồng bộ song song để nhận ngay khi máy tính push lên GitHub)
+                try {
+                    const ghRawUrl = `https://raw.githubusercontent.com/tna9899/my-website/main/memories.json?_t=${Date.now()}`;
+                    const ghResp = await fetch(ghRawUrl, {
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache, no-store' }
+                    });
+                    if (ghResp.ok) {
+                        const ghMemories = await ghResp.json();
+                        if (Array.isArray(ghMemories) && ghMemories.length > 0) {
+                            allRemoteMemories.push(...ghMemories);
+                        }
+                    }
+                } catch (ghErr) {}
+
+                // 3. Nguồn 3: Local Node API (Chỉ khi chạy cục bộ localhost:8080)
+                const endpoints = this.getEndpoints('/api/memories');
+                for (const ep of endpoints) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 2000);
+                        const resp = await fetch(`${ep}?_t=${Date.now()}`, {
+                            mode: 'cors',
+                            cache: 'no-store',
+                            headers: { 'Cache-Control': 'no-cache, no-store' },
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            const serverMemories = Array.isArray(data) ? data : (data.memories || []);
+                            if (data && Array.isArray(data.deletedIds)) {
+                                let hasNewDeletions = false;
+                                const currentDel = this.getDeletedIds();
+                                for (const dId of data.deletedIds) {
+                                    const idStr = String(dId);
+                                    if (!currentDel.includes(idStr)) {
+                                        this.addDeletedId(idStr);
+                                        hasNewDeletions = true;
+                                    }
+                                }
+                                if (hasNewDeletions) {
+                                    this._applyDeletionsAndRerender();
+                                }
+                            }
+                            if (Array.isArray(serverMemories) && serverMemories.length > 0) {
+                                allRemoteMemories.push(...serverMemories);
+                                break;
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                // 4. Nguồn 4: memories.json tĩnh tương đối dự phòng
+                if (allRemoteMemories.length === 0) {
+                    try {
+                        const resp = await fetch(`memories.json?_t=${Date.now()}`);
+                        if (resp.ok) {
+                            const staticMemories = await resp.json();
+                            if (Array.isArray(staticMemories) && staticMemories.length > 0) {
+                                allRemoteMemories.push(...staticMemories);
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                // 5. Gộp thông minh tất cả nguồn từ xa với bộ nhớ máy khách (Smart Merge)
+                if (allRemoteMemories.length > 0) {
+                    const merged = this.mergeWithLocal(allRemoteMemories);
+                    this._cache = merged;
+                    try { localStorage.setItem(this.storageKey, JSON.stringify(merged)); } catch (e) {}
+                    try { await IDBStorage.saveAll(merged); } catch (e) {}
+
+                    if (typeof renderMemories === 'function') renderMemories();
+                    if (typeof renderVietnamMap === 'function') renderVietnamMap();
+
+                    // Tự động đẩy phiên bản gộp mới nhất lên ImageKit để các máy khác cập nhật theo
+                    if (merged.length > 0) {
+                        setTimeout(() => this.syncToImageKit(merged), 800);
+                    }
+
+                    updated = true;
+                    updateSyncStatusUI('synced');
+                }
+            } finally {
+                this._isFetching = false;
                 updateSyncStatusUI('synced');
             }
 
-            this._isFetching = false;
-            updateSyncStatusUI('synced');
             return updated;
         },
 
@@ -1952,7 +1957,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     navHome.addEventListener('click', () => switchTab('home'));
     navAdd.addEventListener('click', () => switchTab('add'));
-    brandTitle.addEventListener('click', () => switchTab('home'));
+    if (brandTitle) brandTitle.addEventListener('click', () => switchTab('home'));
+    const brandLogoContainer = document.getElementById('brand-logo-container');
+    if (brandLogoContainer) brandLogoContainer.addEventListener('click', () => switchTab('home'));
     emptyAddBtn.addEventListener('click', () => switchTab('add'));
 
     // Menu 3 gạch (Hamburger)
