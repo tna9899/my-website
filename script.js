@@ -62,15 +62,17 @@ if (!window.getOptimizedVideoUrl) {
     window.getOptimizedVideoUrl = function(url) {
         if (!url || typeof url !== 'string') return '';
         if (url.startsWith('data:video/')) return url;
-        // Tự động tối ưu video ImageKit sang chuẩn MP4 (H.264/AAC) tương thích 100% mọi điện thoại di động
+        // Loại bỏ toàn bộ tham số biến đổi video (tr= hoặc /tr:) trên ImageKit để không tiêu tốn Video Processing Units (500 VPU)
         if (url.includes('ik.imagekit.io')) {
-            const clean = url.split('?')[0].split('#')[0].toLowerCase();
-            if (/\.(mov|m4v|quicktime)$/i.test(clean) || url.includes('/vid_')) {
-                if (!url.includes('tr=') && !url.includes('/tr:')) {
-                    const sep = url.includes('?') ? '&' : '?';
-                    return `${url}${sep}tr=f-mp4`;
+            let cleanUrl = url;
+            if (cleanUrl.includes('tr=') || cleanUrl.includes('/tr:')) {
+                cleanUrl = cleanUrl.replace(/(\?|&)tr=[^&#]+/g, '');
+                cleanUrl = cleanUrl.replace(/\/tr:[^/]+/g, '');
+                if (cleanUrl.includes('&') && !cleanUrl.includes('?')) {
+                    cleanUrl = cleanUrl.replace('&', '?');
                 }
             }
+            return cleanUrl;
         }
         return url;
     };
@@ -561,7 +563,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     return true;
                 }).map(m => {
                     const rawImgs = Array.isArray(m.images) ? m.images : (m.image ? [m.image] : []);
-                    const cleanImgs = rawImgs.filter(img => img && typeof img === 'string' && img.trim().length > 5);
+                    const cleanImgs = rawImgs
+                        .filter(img => img && typeof img === 'string' && img.trim().length > 5)
+                        .map(img => {
+                            if (typeof window.getOptimizedVideoUrl === 'function' && img.includes('ik.imagekit.io') && (img.includes('tr=') || img.includes('/tr:'))) {
+                                return window.getOptimizedVideoUrl(img);
+                            }
+                            return img;
+                        });
                     return { ...m, images: cleanImgs.length > 0 ? cleanImgs : [window.FALLBACK_IMG_PLACEHOLDER] };
                 });
 
@@ -2027,6 +2036,22 @@ document.addEventListener('DOMContentLoaded', () => {
         hamburgerDropdown.classList.add('hidden');
         openSettingsModal();
     });
+
+    const menuItemSyncQr = document.getElementById('menu-item-sync-qr');
+    if (menuItemSyncQr) {
+        menuItemSyncQr.addEventListener('click', () => {
+            hamburgerDropdown.classList.add('hidden');
+            SyncDeviceModal.open();
+        });
+    }
+
+    const menuItemCleanupImageKit = document.getElementById('menu-item-cleanup-imagekit');
+    if (menuItemCleanupImageKit) {
+        menuItemCleanupImageKit.addEventListener('click', () => {
+            hamburgerDropdown.classList.add('hidden');
+            ImageKitCleanupModal.open();
+        });
+    }
 
     const syncStatusBtn = document.getElementById('sync-status-btn');
     if (syncStatusBtn) {
@@ -6257,24 +6282,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================================================
     const SyncDeviceModal = {
         modal: null,
-        currentMode: 'wifi', // 'wifi' | 'online'
-        wifiUrl: '',
-        onlineUrl: '',
+        onlineUrl: 'https://tna9899.github.io/my-website/',
 
-        async init() {
+        init() {
             this.modal = document.getElementById('modal-sync-device');
             if (!this.modal) return;
 
-            const btnOpen = document.getElementById('btn-open-sync-device');
             const btnOpenFromSettings = document.getElementById('btn-open-sync-from-settings');
             const btnClose = document.getElementById('close-modal-sync-device');
             const btnDone = document.getElementById('btn-done-sync-device');
-            const tabWifi = document.getElementById('tab-sync-wifi');
-            const tabOnline = document.getElementById('tab-sync-online');
             const btnCopy = document.getElementById('btn-copy-sync-url');
-            const btnReconcile = document.getElementById('btn-reconcile-sync-device');
 
-            if (btnOpen) btnOpen.addEventListener('click', () => this.open());
             if (btnOpenFromSettings) btnOpenFromSettings.addEventListener('click', () => {
                 const settingsModal = document.getElementById('modal-settings');
                 if (settingsModal) settingsModal.classList.add('hidden');
@@ -6286,94 +6304,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (e.target === this.modal) this.close();
             });
 
-            if (tabWifi) tabWifi.addEventListener('click', () => this.switchMode('wifi'));
-            if (tabOnline) tabOnline.addEventListener('click', () => this.switchMode('online'));
             if (btnCopy) btnCopy.addEventListener('click', () => this.copyUrl());
-            if (btnReconcile) btnReconcile.addEventListener('click', async () => {
-                btnReconcile.innerHTML = `<span>Đang dọn dẹp...</span>`;
-                try {
-                    await MemoryStore.reconcileImageKit();
-                    showSyncCountdownToast({
-                        title: 'Đã dọn dẹp ImageKit thành công!',
-                        detail: 'Toàn bộ ảnh mồ côi đã được rà soát và xóa sạch.',
-                        durationSeconds: 3
-                    });
-                } catch(e) {
-                    alert('Lỗi: ' + e.message);
-                } finally {
-                    btnReconcile.innerHTML = `🔄 Dọn Dẹp ImageKit Ngay`;
-                }
-            });
         },
 
-        async open() {
+        open() {
             if (!this.modal) return;
             this.modal.classList.remove('hidden');
 
-            // Lấy thông tin server nếu đang kết nối
-            await this.fetchServerInfo();
-            this.switchMode(this.currentMode);
+            // Xác định link trực tuyến chính xác
+            let targetUrl = this.onlineUrl;
+            if (window.location.hostname && window.location.hostname.includes('github.io')) {
+                targetUrl = window.location.href.split('?')[0].split('#')[0];
+            }
+
+            const inputUrl = document.getElementById('sync-url-input');
+            if (inputUrl) inputUrl.value = targetUrl;
+            this.renderQrCode(targetUrl);
         },
 
         close() {
             if (this.modal) this.modal.classList.add('hidden');
-        },
-
-        async fetchServerInfo() {
-            this.onlineUrl = 'https://tna9899.github.io/my-website/';
-            this.wifiUrl = window.location.href;
-
-            const endpoints = MemoryStore.getEndpoints('/api/info');
-            for (const ep of endpoints) {
-                try {
-                    const resp = await fetch(ep, { mode: 'cors', cache: 'no-store' });
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data && data.status === 'ok') {
-                            if (data.wifiUrl) this.wifiUrl = data.wifiUrl;
-                            if (data.onlineUrl) this.onlineUrl = data.onlineUrl;
-                            if (data.cloudflareUrl) this.onlineUrl = data.cloudflareUrl;
-                            break;
-                        }
-                    }
-                } catch (e) {}
-            }
-        },
-
-        switchMode(mode) {
-            this.currentMode = mode;
-            const tabWifi = document.getElementById('tab-sync-wifi');
-            const tabOnline = document.getElementById('tab-sync-online');
-            const inputUrl = document.getElementById('sync-url-input');
-            const hint = document.getElementById('sync-url-hint');
-
-            let targetUrl = (mode === 'wifi') ? this.wifiUrl : this.onlineUrl;
-            if (!targetUrl) targetUrl = window.location.href;
-
-            if (mode === 'wifi') {
-                if (tabWifi) {
-                    tabWifi.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all shadow-xs bg-white text-rose-600 font-bold cursor-pointer';
-                }
-                if (tabOnline) {
-                    tabOnline.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all text-gray-600 hover:text-gray-900 cursor-pointer';
-                }
-                if (hint) {
-                    hint.textContent = '💡 Kết nối qua cùng mạng WiFi: Tốc độ tối đa, ảnh/video gốc tải siêu nhanh.';
-                }
-            } else {
-                if (tabOnline) {
-                    tabOnline.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all shadow-xs bg-white text-rose-600 font-bold cursor-pointer';
-                }
-                if (tabWifi) {
-                    tabWifi.className = 'flex-1 py-1.5 px-3 rounded-lg transition-all text-gray-600 hover:text-gray-900 cursor-pointer';
-                }
-                if (hint) {
-                    hint.textContent = '🌐 Kết nối Đám Mây: Mở được mọi nơi qua 4G/5G hoặc bất kỳ mạng Internet nào.';
-                }
-            }
-
-            if (inputUrl) inputUrl.value = targetUrl;
-            this.renderQrCode(targetUrl);
         },
 
         renderQrCode(url) {
@@ -6435,6 +6385,103 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // =========================================================================
+    // 19. MODAL DỌN DẸP LƯU TRỮ IMAGEKIT
+    // =========================================================================
+    const ImageKitCleanupModal = {
+        modal: null,
+        btnStart: null,
+        statusResult: null,
+        badge: null,
+
+        init() {
+            this.modal = document.getElementById('modal-imagekit-cleanup');
+            if (!this.modal) return;
+
+            const btnClose = document.getElementById('close-modal-imagekit-cleanup');
+            const btnCancel = document.getElementById('btn-cancel-imagekit-cleanup');
+            this.btnStart = document.getElementById('btn-start-imagekit-cleanup');
+            this.statusResult = document.getElementById('imagekit-cleanup-result');
+            this.badge = document.getElementById('imagekit-cleanup-badge');
+
+            if (btnClose) btnClose.addEventListener('click', () => this.close());
+            if (btnCancel) btnCancel.addEventListener('click', () => this.close());
+            this.modal.addEventListener('click', (e) => {
+                if (e.target === this.modal) this.close();
+            });
+
+            if (this.btnStart) {
+                this.btnStart.addEventListener('click', () => this.runCleanup());
+            }
+        },
+
+        open() {
+            if (!this.modal) return;
+            if (this.statusResult) {
+                this.statusResult.classList.add('hidden');
+                this.statusResult.textContent = '';
+            }
+            if (this.badge) {
+                this.badge.textContent = 'Sẵn sàng';
+                this.badge.className = 'px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px]';
+            }
+            this.modal.classList.remove('hidden');
+        },
+
+        close() {
+            if (this.modal) this.modal.classList.add('hidden');
+        },
+
+        async runCleanup() {
+            if (!this.btnStart) return;
+            const btnText = document.getElementById('imagekit-cleanup-btn-text');
+            const originalText = btnText ? btnText.textContent : 'Bắt Đầu Dọn Dẹp';
+
+            this.btnStart.disabled = true;
+            if (btnText) btnText.textContent = 'Đang rà soát...';
+            if (this.badge) {
+                this.badge.textContent = 'Đang chạy...';
+                this.badge.className = 'px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[11px] animate-pulse';
+            }
+
+            try {
+                const res = await MemoryStore.reconcileImageKit();
+                if (this.badge) {
+                    this.badge.textContent = 'Đã hoàn tất';
+                    this.badge.className = 'px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold';
+                }
+
+                if (this.statusResult) {
+                    this.statusResult.classList.remove('hidden');
+                    const deletedMsg = res.cleanedCount > 0
+                        ? `🎉 Đã dọn dẹp và xóa sạch ${res.cleanedCount} tệp ảnh/video mồ côi trên ImageKit!`
+                        : `✨ Toàn bộ ảnh/video trên ImageKit đang khớp chính xác 100% với ${res.memoriesCount} kỷ niệm. Không có tệp thừa!`;
+                    this.statusResult.textContent = deletedMsg;
+                    this.statusResult.className = 'p-2.5 rounded-xl bg-white border border-emerald-200 text-emerald-700 font-medium text-xs';
+                }
+
+                showSyncCountdownToast({
+                    title: 'Dọn dẹp ImageKit hoàn tất!',
+                    detail: res.cleanedCount > 0 ? `Đã dọn dẹp ${res.cleanedCount} tệp thừa` : 'Lưu trữ đã sạch hoàn toàn',
+                    durationSeconds: 3
+                });
+            } catch (err) {
+                if (this.statusResult) {
+                    this.statusResult.classList.remove('hidden');
+                    this.statusResult.textContent = `❌ Lỗi: ${err.message}`;
+                    this.statusResult.className = 'p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 font-medium text-xs';
+                }
+                if (this.badge) {
+                    this.badge.textContent = 'Thất bại';
+                    this.badge.className = 'px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[11px]';
+                }
+            } finally {
+                this.btnStart.disabled = false;
+                if (btnText) btnText.textContent = originalText;
+            }
+        }
+    };
+
     initHeartCursorTrail();
     initScrollToTop();
 
@@ -6445,6 +6492,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ImageViewer.init();
     EditMemoryModal.init();
     SyncDeviceModal.init();
+    ImageKitCleanupModal.init();
     Logger.log('APP_READY', 'Hệ thống đã khởi tạo hoàn tất');
 });
 

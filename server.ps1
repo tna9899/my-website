@@ -427,14 +427,70 @@ while ($listener.IsListening) {
 
         # 3.2. API DON DEP TOAN DIEN IMAGEKIT (/api/imagekit/cleanup)
         if ($request.Url.AbsolutePath -eq "/api/imagekit/cleanup" -and $request.HttpMethod -eq "POST") {
+            $deletedCount = 0
+            $memCount = 0
             try {
-                $pyScript = Join-Path $folder "scripts\cleanup_imagekit.py"
-                if (Test-Path $pyScript) {
-                    $pyOut = & python $pyScript 2>&1 | Out-String
-                    Write-Host "[ImageKit Cleanup] $pyOut" -ForegroundColor Cyan
+                # 1. Lay danh sach tat ca anh/video dang co trong memories.json
+                $activeNames = @()
+                if (Test-Path $memoriesFile) {
+                    $raw = [System.IO.File]::ReadAllText($memoriesFile, [System.Text.Encoding]::UTF8)
+                    $parsed = ConvertFrom-Json $raw -ErrorAction SilentlyContinue
+                    if ($parsed) {
+                        $mems = if ($parsed -is [System.Array]) { $parsed } else { @($parsed) }
+                        $memCount = $mems.Count
+                        foreach ($m in $mems) {
+                            $imgs = if ($m.images -is [System.Array]) { $m.images } elseif ($m.images) { @($m.images) } elseif ($m.image) { @($m.image) } else { @() }
+                            foreach ($img in $imgs) {
+                                if ($img -and $img.Contains("ik.imagekit.io")) {
+                                    $cleanUrl = $img.Split('?')[0].Split('#')[0]
+                                    $parts = $cleanUrl.Split('/')
+                                    if ($parts.Count -gt 0) { $activeNames += $parts[-1].ToLower() }
+                                }
+                            }
+                        }
+                    }
                 }
+
+                # 2. Goi ImageKit API lay danh sach files tren thu muc anhuyen_memories
+                $ikFile = Join-Path $folder "imagekit-config.js"
+                $privateKey = ""
+                if (Test-Path $ikFile) {
+                    $ikContent = [System.IO.File]::ReadAllText($ikFile, [System.Text.Encoding]::UTF8)
+                    if ($ikContent -match 'privateKey:\s*["'']([^"'']+)["'']') {
+                        $privateKey = $matches[1]
+                    }
+                }
+
+                if ($privateKey) {
+                    $base64Auth = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${privateKey}:"))
+                    $headers = @{ "Authorization" = "Basic $base64Auth" }
+                    $listUrl = "https://api.imagekit.io/v1/files?path=/anhuyen_memories&limit=100"
+                    $files = Invoke-RestMethod -Uri $listUrl -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction SilentlyContinue
+
+                    if ($files) {
+                        foreach ($f in $files) {
+                            if ($f -and $f.fileId -and $f.name) {
+                                $fNameLower = $f.name.ToLower()
+                                $isUsed = $false
+                                foreach ($an in $activeNames) {
+                                    if ($fNameLower -eq $an -or $an.StartsWith($fNameLower) -or $fNameLower.StartsWith($an)) {
+                                        $isUsed = $true
+                                        break
+                                    }
+                                }
+                                if (-not $isUsed) {
+                                    $delUrl = "https://api.imagekit.io/v1/files/$($f.fileId)"
+                                    Invoke-RestMethod -Uri $delUrl -Headers $headers -Method Delete -TimeoutSec 8 -ErrorAction SilentlyContinue | Out-Null
+                                    Write-Host "[ImageKit Cleanup] Da xoa file mo coi: $($f.name)" -ForegroundColor Yellow
+                                    $deletedCount++
+                                }
+                            }
+                        }
+                    }
+                }
+
                 $response.StatusCode = 200
-                $resJson = '{"status":"ok","message":"ImageKit cleanup executed successfully"}'
+                $resJson = "{`"status`":`"ok`",`"deletedCount`":$deletedCount,`"memoriesCount`":$memCount}"
             } catch {
                 $response.StatusCode = 500
                 $resJson = '{"status":"error","message":"' + $_.Exception.Message.Replace('"', '\"') + '"}'
