@@ -62,17 +62,16 @@ if (!window.getOptimizedVideoUrl) {
     window.getOptimizedVideoUrl = function(url) {
         if (!url || typeof url !== 'string') return '';
         if (url.startsWith('data:video/')) return url;
-        // Bắt buộc thêm tr=orig-true cho toàn bộ video ImageKit
-        // Tham số tr=orig-true chỉ định CDN ImageKit phân phối trực tiếp file gốc (nguyên bản),
-        // TUYỆT ĐỐI KHÔNG tự động chuyển đổi định dạng (transcode), tiêu tốn đúng 0 VPU (Video Processing Units),
-        // giải quyết triệt để lỗi "Video transformation usage exceeded free plan limits".
+        // Loại bỏ mọi tham số biến đổi tr= / tr: (kể cả tr=orig-true)
+        // để CDN ImageKit phân phối trực tiếp bản MP4 đã tối ưu và lưu cache sẵn trên CloudFront.
+        // Giúp video phát mượt mà 100% trên mọi trình duyệt (Chrome, Safari, iOS, Android, PC)
+        // và không tốn thêm bất kỳ đơn vị VPU (Video Processing Unit) nào.
         if (url.includes('ik.imagekit.io')) {
             let cleanUrl = url;
             cleanUrl = cleanUrl.replace(/(\?|&)tr=[^&#]*/g, '');
             cleanUrl = cleanUrl.replace(/\/tr:[^/]+/g, '');
             cleanUrl = cleanUrl.replace(/\?&/, '?').replace(/&&+/, '&').replace(/[?&]$/, '');
-            const sep = cleanUrl.includes('?') ? '&' : '?';
-            return `${cleanUrl}${sep}tr=orig-true`;
+            return cleanUrl;
         }
         return url;
     };
@@ -598,6 +597,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 this._cache = filtered;
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(filtered));
+                } catch (e) {}
                 return this._cache;
             }
             this._cache = [];
