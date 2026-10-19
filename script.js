@@ -5689,8 +5689,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btnNext: null,
         imageTools: null,
         playOverlay: null,
-        videoError: null,
-        videoErrorDownload: null,
 
         init() {
             this.modal = document.getElementById('modal-image-viewer');
@@ -5701,8 +5699,6 @@ document.addEventListener('DOMContentLoaded', () => {
             this.video = document.getElementById('viewer-video');
             this.imageTools = document.getElementById('viewer-image-tools');
             this.playOverlay = document.getElementById('viewer-video-play-overlay');
-            this.videoError = document.getElementById('viewer-video-error');
-            this.videoErrorDownload = document.getElementById('viewer-video-error-download');
 
             if (this.playOverlay) {
                 this.playOverlay.addEventListener('click', (e) => {
@@ -5710,16 +5706,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (this.video) {
                         this.video.play().then(() => {
                             if (this.playOverlay) this.playOverlay.classList.add('hidden');
-                            if (this.videoError) this.videoError.classList.add('hidden');
                         }).catch(err => {
                             console.error('[ImageViewer] Lỗi phát video:', err);
-                            if (this.videoError) {
-                                this.videoError.classList.remove('hidden');
-                                if (this.videoErrorDownload) {
-                                    const cur = this.images[this.currentIndex];
-                                    this.videoErrorDownload.href = window.getOptimizedVideoUrl(cur);
-                                }
-                            }
                         });
                     }
                 });
@@ -5728,35 +5716,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.video) {
                 this.video.addEventListener('play', () => {
                     if (this.playOverlay) this.playOverlay.classList.add('hidden');
-                    if (this.videoError) this.videoError.classList.add('hidden');
                 });
                 this.video.addEventListener('error', (e) => {
                     console.warn('[ImageViewer] Video playback error:', e);
                     if (this.loader) this.loader.classList.add('hidden');
-                    if (this.playOverlay) this.playOverlay.classList.add('hidden');
-                    if (this.videoError) {
-                        this.videoError.classList.remove('hidden');
-                        if (this.videoErrorDownload) {
-                            const cur = this.images[this.currentIndex];
-                            this.videoErrorDownload.href = window.getOptimizedVideoUrl(cur);
-                        }
-                    }
-                });
-            }
-
-            const btnCloseVideoError = document.getElementById('viewer-video-error-close-btn');
-            const btnDismissVideoError = document.getElementById('viewer-video-error-dismiss');
-
-            if (btnCloseVideoError) {
-                btnCloseVideoError.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.close();
-                });
-            }
-            if (btnDismissVideoError) {
-                btnDismissVideoError.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.close();
                 });
             }
 
@@ -5894,7 +5857,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.video.style.display = 'none';
                 this.video.classList.add('hidden');
             }
-            if (this.videoError) this.videoError.classList.add('hidden');
             if (this.playOverlay) this.playOverlay.classList.add('hidden');
             if (this.imageTools) this.imageTools.style.display = 'flex';
             if (this.modal) {
@@ -5960,8 +5922,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Nếu là Video
             if (isVideo) {
-                if (this.videoError) this.videoError.classList.add('hidden');
-                if (this.videoErrorDownload) this.videoErrorDownload.href = optUrl;
                 if (this.img) {
                     this.img.style.display = 'none';
                     this.img.style.opacity = '0';
@@ -5990,7 +5950,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return;
             } else {
-                if (this.videoError) this.videoError.classList.add('hidden');
                 if (this.imageTools) this.imageTools.style.display = 'flex';
                 if (this.playOverlay) this.playOverlay.classList.add('hidden');
                 if (this.video) {
