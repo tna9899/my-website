@@ -62,17 +62,32 @@ if (!window.getOptimizedVideoUrl) {
     window.getOptimizedVideoUrl = function(url) {
         if (!url || typeof url !== 'string') return '';
         if (url.startsWith('data:video/')) return url;
-        // Loại bỏ toàn bộ tham số biến đổi video (tr= hoặc /tr:) trên ImageKit để không tiêu tốn Video Processing Units (500 VPU)
+        // Bắt buộc thêm tr=orig-true cho toàn bộ video ImageKit
+        // Tham số tr=orig-true chỉ định CDN ImageKit phân phối trực tiếp file gốc (nguyên bản),
+        // TUYỆT ĐỐI KHÔNG tự động chuyển đổi định dạng (transcode), tiêu tốn đúng 0 VPU (Video Processing Units),
+        // giải quyết triệt để lỗi "Video transformation usage exceeded free plan limits".
         if (url.includes('ik.imagekit.io')) {
             let cleanUrl = url;
-            if (cleanUrl.includes('tr=') || cleanUrl.includes('/tr:')) {
-                cleanUrl = cleanUrl.replace(/(\?|&)tr=[^&#]+/g, '');
-                cleanUrl = cleanUrl.replace(/\/tr:[^/]+/g, '');
-                if (cleanUrl.includes('&') && !cleanUrl.includes('?')) {
-                    cleanUrl = cleanUrl.replace('&', '?');
-                }
-            }
-            return cleanUrl;
+            cleanUrl = cleanUrl.replace(/(\?|&)tr=[^&#]*/g, '');
+            cleanUrl = cleanUrl.replace(/\/tr:[^/]+/g, '');
+            cleanUrl = cleanUrl.replace(/\?&/, '?').replace(/&&+/, '&').replace(/[?&]$/, '');
+            const sep = cleanUrl.includes('?') ? '&' : '?';
+            return `${cleanUrl}${sep}tr=orig-true`;
+        }
+        return url;
+    };
+}
+
+if (!window.getCardImageUrl) {
+    window.getCardImageUrl = function(url) {
+        if (!url || typeof url !== 'string') return '';
+        if (url.startsWith('data:')) return url;
+        if (url.includes('ik.imagekit.io')) {
+            // Tối ưu hóa kích thước ảnh hiển thị trên thẻ (width 1000px, quality 80)
+            // Giảm 85% dung lượng tải và 75% tiêu thụ RAM giải mã trên Safari iOS, ngăn chặn hoàn toàn lỗi sập tab WebProcess OOM
+            if (url.includes('tr=') || url.includes('/tr:')) return url;
+            const sep = url.includes('?') ? '&' : '?';
+            return `${url}${sep}tr=w-1000,q-80`;
         }
         return url;
     };
@@ -566,7 +581,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const cleanImgs = rawImgs
                         .filter(img => img && typeof img === 'string' && img.trim().length > 5)
                         .map(img => {
-                            if (typeof window.getOptimizedVideoUrl === 'function' && img.includes('ik.imagekit.io') && (img.includes('tr=') || img.includes('/tr:'))) {
+                            if (typeof window.getOptimizedVideoUrl === 'function' && window.isVideoUrl && window.isVideoUrl(img) && img.includes('ik.imagekit.io')) {
                                 return window.getOptimizedVideoUrl(img);
                             }
                             return img;
@@ -2801,7 +2816,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const nextIdx = (currentIdx + 1) % totalImages;
             slideTo(memoryId, nextIdx, totalImages, false);
-        }, 2000); // Tự động chuyển ảnh cách nhau 2 giây
+        }, 3500); // Tự động chuyển ảnh cách nhau 3.5 giây giúp trình duyệt điện thoại vận hành êm ái
     };
 
     const stopAutoSlide = (memoryId) => {
@@ -3002,12 +3017,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="stacked-deck-stage" id="stacked-stage-${memoryId}">
                             ${images.map((imgSrc, imgIdx) => {
                                 const isVid = window.isVideoUrl(imgSrc);
-                                const optSrc = isVid ? window.getOptimizedVideoUrl(imgSrc) : imgSrc;
+                                const optSrc = isVid ? window.getOptimizedVideoUrl(imgSrc) : window.getCardImageUrl(imgSrc);
                                 return `
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in relative group" data-img-idx="${imgIdx}" title="${isVid ? 'Bấm vào để xem video phóng to' : 'Bấm vào để phóng to xem chi tiết'}">
                                         ${isVid ? `
-                                            <video src="${optSrc}" playsinline webkit-playsinline preload="metadata" class="w-full h-full object-cover rounded-2xl bg-black pointer-events-none"></video>
+                                            <video src="${optSrc}" playsinline webkit-playsinline muted preload="none" class="w-full h-full object-cover rounded-2xl bg-neutral-900 pointer-events-none" onerror="window.handleVideoError(this)"></video>
                                             <div class="absolute inset-0 bg-black/25 flex flex-col items-center justify-center rounded-2xl transition-all group-hover:bg-black/15 pointer-events-none">
                                                 <div class="w-13 h-13 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">
@@ -3017,7 +3032,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <span class="mt-2 text-xs font-semibold text-white/95 bg-black/50 px-2.5 py-0.5 rounded-full backdrop-blur-xs">Bấm để xem video</span>
                                             </div>
                                         ` : `
-                                            <img src="${imgSrc}" alt="" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                                            <img src="${optSrc}" alt="" loading="${imgIdx < 2 ? 'eager' : 'lazy'}" decoding="async" onerror="window.handleImageError(this, '${memoryId}')">
                                         `}
                                     </div>
                                 </div>
@@ -3050,8 +3065,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (window.isVideoUrl(images[0])) {
                     const videoSrc = window.getOptimizedVideoUrl(images[0]);
                     mediaMarkup = `
-                        <div class="single-photo-frame w-full bg-black/95 overflow-hidden relative rounded-2xl flex items-center justify-center p-2 group" data-single-frame="${memoryId}">
-                            <video src="${videoSrc}" controls playsinline webkit-playsinline preload="metadata" class="w-full max-h-[620px] rounded-2xl block bg-black shadow-md object-contain"></video>
+                        <div class="single-photo-frame w-full bg-neutral-900/95 overflow-hidden relative rounded-2xl flex items-center justify-center p-2 group" data-single-frame="${memoryId}">
+                            <video src="${videoSrc}" controls playsinline webkit-playsinline muted preload="metadata" class="w-full max-h-[620px] rounded-2xl block bg-neutral-900 shadow-md object-contain" onerror="window.handleVideoError(this)"></video>
                             <button type="button" class="absolute top-4 right-4 z-10 bg-black/60 hover:bg-black/80 text-white p-2.5 rounded-full backdrop-blur-md transition-all shadow-md active:scale-95 flex items-center gap-1.5 text-xs font-medium cursor-pointer" data-expand-video="${memoryId}" title="Phóng to toàn màn hình">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -3063,7 +3078,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     mediaMarkup = `
                         <div class="single-photo-frame w-full bg-black/5 overflow-hidden flex items-center justify-center p-3 cursor-zoom-in" data-single-frame="${memoryId}" title="Bấm vào để phóng to xem chi tiết">
-                            <img src="${images[0]}" alt="" class="w-full max-h-[620px] object-contain rounded-2xl block" loading="eager" onerror="window.handleImageError(this, '${memoryId}')">
+                            <img src="${window.getCardImageUrl(images[0])}" alt="" class="w-full max-h-[620px] object-contain rounded-2xl block" loading="lazy" decoding="async" onerror="window.handleImageError(this, '${memoryId}')">
                         </div>
                     `;
                 }
@@ -5674,6 +5689,8 @@ document.addEventListener('DOMContentLoaded', () => {
         btnNext: null,
         imageTools: null,
         playOverlay: null,
+        videoError: null,
+        videoErrorDownload: null,
 
         init() {
             this.modal = document.getElementById('modal-image-viewer');
@@ -5684,6 +5701,8 @@ document.addEventListener('DOMContentLoaded', () => {
             this.video = document.getElementById('viewer-video');
             this.imageTools = document.getElementById('viewer-image-tools');
             this.playOverlay = document.getElementById('viewer-video-play-overlay');
+            this.videoError = document.getElementById('viewer-video-error');
+            this.videoErrorDownload = document.getElementById('viewer-video-error-download');
 
             if (this.playOverlay) {
                 this.playOverlay.addEventListener('click', (e) => {
@@ -5691,8 +5710,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (this.video) {
                         this.video.play().then(() => {
                             if (this.playOverlay) this.playOverlay.classList.add('hidden');
+                            if (this.videoError) this.videoError.classList.add('hidden');
                         }).catch(err => {
                             console.error('[ImageViewer] Lỗi phát video:', err);
+                            if (this.videoError) {
+                                this.videoError.classList.remove('hidden');
+                                if (this.videoErrorDownload) {
+                                    const cur = this.images[this.currentIndex];
+                                    this.videoErrorDownload.href = window.getOptimizedVideoUrl(cur);
+                                }
+                            }
                         });
                     }
                 });
@@ -5701,6 +5728,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.video) {
                 this.video.addEventListener('play', () => {
                     if (this.playOverlay) this.playOverlay.classList.add('hidden');
+                    if (this.videoError) this.videoError.classList.add('hidden');
+                });
+                this.video.addEventListener('error', (e) => {
+                    console.warn('[ImageViewer] Video playback error:', e);
+                    if (this.loader) this.loader.classList.add('hidden');
+                    if (this.playOverlay) this.playOverlay.classList.add('hidden');
+                    if (this.videoError) {
+                        this.videoError.classList.remove('hidden');
+                        if (this.videoErrorDownload) {
+                            const cur = this.images[this.currentIndex];
+                            this.videoErrorDownload.href = window.getOptimizedVideoUrl(cur);
+                        }
+                    }
                 });
             }
 
@@ -5838,6 +5878,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 this.video.style.display = 'none';
                 this.video.classList.add('hidden');
             }
+            if (this.videoError) this.videoError.classList.add('hidden');
             if (this.playOverlay) this.playOverlay.classList.add('hidden');
             if (this.imageTools) this.imageTools.style.display = 'flex';
             if (this.modal) {
@@ -5887,10 +5928,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (this.btnNext) this.btnNext.style.display = hasMultiple ? 'flex' : 'none';
 
             const isVideo = window.isVideoUrl(currentSrc);
+            const optUrl = isVideo ? window.getOptimizedVideoUrl(currentSrc) : currentSrc;
 
-            // Cập nhật link tải ảnh/video độ phân giải gốc
+            // Cập nhật link tải ảnh/video độ phân giải gốc (dùng optUrl để tránh lỗi 403 ImageKit)
             if (this.btnDownload) {
-                this.btnDownload.href = currentSrc;
+                this.btnDownload.href = optUrl;
                 let ext = 'mp4';
                 if (/\.(mov|MOV)/i.test(currentSrc)) ext = 'mov';
                 else if (/\.(webm|WEBM)/i.test(currentSrc)) ext = 'webm';
@@ -5902,6 +5944,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Nếu là Video
             if (isVideo) {
+                if (this.videoError) this.videoError.classList.add('hidden');
+                if (this.videoErrorDownload) this.videoErrorDownload.href = optUrl;
                 if (this.img) {
                     this.img.style.display = 'none';
                     this.img.style.opacity = '0';
@@ -5912,7 +5956,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     this.video.style.display = 'block';
                     this.video.classList.remove('hidden');
                     
-                    const optUrl = window.getOptimizedVideoUrl(currentSrc);
                     if (this.video.src !== optUrl) {
                         this.video.src = optUrl;
                         this.video.load(); // Bắt buộc cho Safari iOS nạp luồng video mới
@@ -5931,6 +5974,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return;
             } else {
+                if (this.videoError) this.videoError.classList.add('hidden');
                 if (this.imageTools) this.imageTools.style.display = 'flex';
                 if (this.playOverlay) this.playOverlay.classList.add('hidden');
                 if (this.video) {

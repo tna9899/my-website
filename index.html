@@ -15,8 +15,8 @@
     <meta name="theme-color" content="#f43f5e">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Thư viện giải mã mọi định dạng ảnh Apple HEIC/HEIF sang JPEG chất lượng cao -->
-    <script src="heic2any.min.js"></script>
+    <!-- Thư viện giải mã mọi định dạng ảnh Apple HEIC/HEIF sang JPEG chất lượng cao (nạp ngầm defer để không cản trở hiển thị trên điện thoại) -->
+    <script src="heic2any.min.js" defer></script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -59,6 +59,28 @@
             } else {
                 imgEl.removeAttribute('alt');
                 imgEl.src = window.FALLBACK_IMG_PLACEHOLDER;
+            }
+        };
+        // Xử lý lỗi video tổng quát - Tuyệt đối không để hiện mảng đen
+        window.handleVideoError = function(videoEl) {
+            if (!videoEl) return;
+            videoEl.onerror = null;
+            const parent = videoEl.parentElement;
+            if (parent) {
+                videoEl.style.display = 'none';
+                let fallback = parent.querySelector('.video-fallback-badge');
+                if (!fallback) {
+                    fallback = document.createElement('div');
+                    fallback.className = 'video-fallback-badge absolute inset-0 bg-gradient-to-tr from-rose-950 via-neutral-900 to-rose-900 flex flex-col items-center justify-center text-white p-4 rounded-2xl text-center select-none';
+                    fallback.innerHTML = `
+                        <div class="w-12 h-12 rounded-full bg-rose-500/80 text-white flex items-center justify-center shadow-lg mb-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </div>
+                        <span class="text-xs font-bold text-rose-200">Video Kỷ Niệm</span>
+                        <span class="text-[11px] text-gray-300 mt-0.5">Chạm để mở xem chi tiết</span>
+                    `;
+                    parent.appendChild(fallback);
+                }
             }
         };
     </script>
@@ -1427,7 +1449,7 @@
         <!-- Sân khấu chính hiển thị ảnh / video (Khu vực có thể Zoom, Pan, Drag) -->
         <main id="viewer-stage" class="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center select-none">
             <img id="viewer-image" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Ảnh kỷ niệm phóng to" class="max-w-none max-h-none block select-none pointer-events-auto transition-all will-change-transform opacity-0" draggable="false" onerror="this.onerror=null; if(window.FALLBACK_IMG_PLACEHOLDER) this.src=window.FALLBACK_IMG_PLACEHOLDER;">
-            <video id="viewer-video" class="max-w-[95vw] max-h-[85vh] rounded-2xl hidden select-none pointer-events-auto z-20 bg-black shadow-2xl" controls playsinline webkit-playsinline preload="auto"></video>
+            <video id="viewer-video" class="max-w-[95vw] max-h-[85vh] rounded-2xl hidden select-none pointer-events-auto z-20 bg-neutral-900 shadow-2xl" controls playsinline webkit-playsinline preload="auto"></video>
             
             <!-- Nút Play to ở giữa cho Video trên điện thoại khi bị chặn autoplay -->
             <div id="viewer-video-play-overlay" class="absolute inset-0 flex items-center justify-center z-30 pointer-events-auto hidden cursor-pointer" title="Bấm để phát video">
@@ -1436,6 +1458,26 @@
                         <path d="M8 5v14l11-7z"/>
                     </svg>
                 </button>
+            </div>
+
+            <!-- Khung thông báo hỗ trợ khi Video không thể giải mã trực tiếp trên trình duyệt điện thoại -->
+            <div id="viewer-video-error" class="absolute inset-4 max-w-md mx-auto my-auto h-fit bg-neutral-900/95 border border-rose-500/40 text-white p-6 rounded-3xl shadow-2xl flex flex-col items-center justify-center text-center z-40 hidden backdrop-blur-md">
+                <div class="w-14 h-14 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h4 class="font-bold text-base text-rose-100 mb-1">Video Định Dạng Đặc Biệt (.MOV)</h4>
+                <p class="text-xs text-gray-300 mb-4 leading-relaxed">Trình duyệt này không hỗ trợ phát trực tiếp định dạng video QuickTime. Bạn có thể bấm nút bên dưới để mở hoặc tải video gốc về máy để xem.</p>
+                <div class="flex items-center gap-2">
+                    <a id="viewer-video-error-download" href="#" target="_blank" rel="noopener noreferrer" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 flex items-center space-x-1.5 cursor-pointer">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        <span>Mở / Tải Video Gốc</span>
+                    </a>
+                </div>
             </div>
 
             <!-- Vòng quay tải ảnh nếu ảnh phân giải cực cao đang load -->
@@ -1478,6 +1520,6 @@
     <!-- Thư viện tạo Mã QR Code siêu nhẹ thuần JS -->
     <script src="qrcode.min.js?v=5.0"></script>
     <!-- Script Logic Chính -->
-    <script src="script.js?v=5.6"></script>
+    <script src="script.js?v=5.7"></script>
 </body>
 </html>

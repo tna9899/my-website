@@ -106,12 +106,10 @@ if (Test-Path $linkFile) {
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "   TRANG WEB KY NIEM: NGOC ANH - TU UYEN" -ForegroundColor Yellow
 Write-Host "   May chu dang chay thanh cong tren cong: $port" -ForegroundColor Green
-Write-Host "   - Tren may tinh nay:    http://localhost:$port" -ForegroundColor Cyan
-if ($localIp) {
-    Write-Host "   - Tren mang Wifi noi bo: http://${localIp}:$port" -ForegroundColor Cyan
-}
+Write-Host "   - Tren may tinh nay:         http://localhost:$port" -ForegroundColor Cyan
+Write-Host "   - Tren dien thoai (Online):  https://tna9899.github.io/my-website/" -ForegroundColor Magenta
 if ($onlineLink) {
-    Write-Host "   - Link truc tuyen Cloudflare: $onlineLink" -ForegroundColor Yellow
+    Write-Host "   - Link Cloudflare Tunnel:    $onlineLink" -ForegroundColor Yellow
 }
 Write-Host "   Moi anh tai len se tu dong luu vao thu muc uploads/ sieu nhe!" -ForegroundColor Green
 Write-Host "   Dong bo 2 chieu thoi gian thuc giua May tinh <-> Dien thoai da san sang." -ForegroundColor Green
