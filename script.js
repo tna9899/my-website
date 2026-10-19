@@ -5744,6 +5744,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
 
+            const btnCloseVideoError = document.getElementById('viewer-video-error-close-btn');
+            const btnDismissVideoError = document.getElementById('viewer-video-error-dismiss');
+
+            if (btnCloseVideoError) {
+                btnCloseVideoError.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.close();
+                });
+            }
+            if (btnDismissVideoError) {
+                btnDismissVideoError.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.close();
+                });
+            }
+
             if (this.img) {
                 this.img.onerror = () => {
                     this.img.src = window.FALLBACK_IMG_PLACEHOLDER;
