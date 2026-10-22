@@ -71,7 +71,10 @@ if (!window.getOptimizedVideoUrl) {
             cleanUrl = cleanUrl.replace(/(\?|&)tr=[^&#]*/g, '');
             cleanUrl = cleanUrl.replace(/\/tr:[^/]+/g, '');
             cleanUrl = cleanUrl.replace(/\?&/, '?').replace(/&&+/, '&').replace(/[?&]$/, '');
-            return cleanUrl;
+            // Tự động chuyển đổi các đường dẫn .mov cũ từ iPhone sang .mp4
+            cleanUrl = cleanUrl.replace(/\.mov($|\?)/i, '.mp4$1');
+            const sep = cleanUrl.includes('?') ? '&' : '?';
+            return `${cleanUrl}${sep}tr=orig-true`;
         }
         return url;
     };
@@ -1655,18 +1658,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         const isVid = img.startsWith('data:video/');
                         let ext = isVid ? 'mp4' : 'jpg';
                         const prefix = isVid ? 'vid' : 'img';
+                        let uploadPayload = img;
 
                         const commaIdx = img.indexOf(',');
                         if (commaIdx !== -1) {
                             const header = img.substring(0, commaIdx);
                             if (isVid) {
-                                const match = header.match(/video\/([a-zA-Z0-9\+\-]+)/);
-                                if (match) {
-                                    let mExt = match[1].toLowerCase();
-                                    if (mExt === 'quicktime') ext = 'mov';
-                                    else if (mExt === 'x-m4v') ext = 'm4v';
-                                    else if (/^(mp4|mov|webm|m4v|avi|mkv|ogv|3gp)$/.test(mExt)) ext = mExt;
-                                }
+                                // Tự động chuyển toàn bộ video (đặc biệt là .mov / quicktime từ iPhone) sang chuẩn MP4
+                                ext = 'mp4';
+                                uploadPayload = img.replace(/^data:video\/(quicktime|mov|x-m4v)/i, 'data:video/mp4');
                             } else {
                                 const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
                                 if (match) {
@@ -1681,7 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const auth = await window.getImageKitAuth();
 
                         const formData = new FormData();
-                        formData.append('file', img);
+                        formData.append('file', uploadPayload);
                         formData.append('fileName', fileName);
                         formData.append('publicKey', imagekitConfig.publicKey);
                         formData.append('signature', auth.signature);
@@ -1689,6 +1689,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         formData.append('token', auth.token);
                         formData.append('folder', '/anhuyen_memories');
                         formData.append('useUniqueFileName', 'true');
+
+                        if (isVid) {
+                            formData.append('transformation', JSON.stringify({
+                                post: [{ type: 'transformation', value: 'f-mp4' }]
+                            }));
+                        }
 
                         const controller = new AbortController();
                         const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -3024,7 +3030,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="stacked-card" data-card-idx="${imgIdx}">
                                     <div class="stacked-card-frame cursor-zoom-in relative group" data-img-idx="${imgIdx}" title="${isVid ? 'Bấm vào để xem video phóng to' : 'Bấm vào để phóng to xem chi tiết'}">
                                         ${isVid ? `
-                                            <video src="${optSrc}" playsinline webkit-playsinline muted preload="none" class="w-full h-full object-cover rounded-2xl bg-neutral-900 pointer-events-none" onerror="window.handleVideoError(this)"></video>
+                                            <video src="${optSrc}" playsinline webkit-playsinline muted preload="metadata" class="w-full h-full object-cover rounded-2xl bg-neutral-900 pointer-events-none" onerror="window.handleVideoError(this)"></video>
                                             <div class="absolute inset-0 bg-black/25 flex flex-col items-center justify-center rounded-2xl transition-all group-hover:bg-black/15 pointer-events-none">
                                                 <div class="w-13 h-13 rounded-full bg-rose-500/90 text-white flex items-center justify-center shadow-lg transform transition-transform group-hover:scale-110">
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 translate-x-0.5" fill="currentColor" viewBox="0 0 24 24">

@@ -76,7 +76,7 @@ try {
 // Ham ho tro luu chuoi anh Base64 thanh file vat ly trong thu muc uploads/ (giu 100% do phan giai goc)
 function saveBase64ToUploads(b64String, prefixId, idx) {
     if (!b64String || typeof b64String !== 'string') return '';
-    if (!b64String.startsWith('data:image/')) {
+    if (!b64String.startsWith('data:image/') && !b64String.startsWith('data:video/')) {
         return b64String; // Da la duong dan file (uploads/...) thi giu nguyen
     }
 
@@ -86,28 +86,35 @@ function saveBase64ToUploads(b64String, prefixId, idx) {
 
         const data = b64String.substring(commaIdx + 1);
         if (!data || data.length < 20) {
-            console.warn('[UPLOAD] Bo qua du lieu anh base64 qua ngan hoac rong');
+            console.warn('[UPLOAD] Bo qua du lieu media base64 qua ngan hoac rong');
             return '';
         }
 
         const buffer = Buffer.from(data, 'base64');
         if (!buffer || buffer.length < 20) {
-            console.warn('[UPLOAD] Bo qua du lieu anh buffer rong (0 bytes)');
+            console.warn('[UPLOAD] Bo qua du lieu media buffer rong (0 bytes)');
             return '';
         }
 
         const header = b64String.substring(0, commaIdx);
-        let ext = 'jpg';
-        const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
-        if (match) {
-            let mExt = match[1].toLowerCase();
-            if (mExt === 'jpeg') ext = 'jpg';
-            else if (mExt === 'svg+xml') ext = 'svg';
-            else if (/^(jpg|png|webp|gif|svg|avif|heic|heif|bmp|tiff?)$/.test(mExt)) ext = mExt;
+        const isVid = b64String.startsWith('data:video/');
+        const prefix = isVid ? 'vid' : 'img';
+        let ext = isVid ? 'mp4' : 'jpg';
+
+        if (isVid) {
+            ext = 'mp4'; // Luon luu video dang MP4
+        } else {
+            const match = header.match(/image\/([a-zA-Z0-9\+\-]+)/);
+            if (match) {
+                let mExt = match[1].toLowerCase();
+                if (mExt === 'jpeg') ext = 'jpg';
+                else if (mExt === 'svg+xml') ext = 'svg';
+                else if (/^(jpg|png|webp|gif|svg|avif|heic|heif|bmp|tiff?)$/.test(mExt)) ext = mExt;
+            }
         }
 
         const safeId = String(prefixId || '').replace(/[^a-zA-Z0-9_-]/g, '') || Date.now().toString();
-        const fileName = `img_${safeId}_${idx}_${Date.now()}.${ext}`;
+        const fileName = `${prefix}_${safeId}_${idx}_${Date.now()}.${ext}`;
         const filePath = path.join(UPLOADS_DIR, fileName);
 
         fs.writeFileSync(filePath, buffer);

@@ -122,7 +122,7 @@ Start-Process "http://localhost:$port"
 # Ham ho tro boc tach va luu anh base64 thanh file vat ly trong thu muc uploads/ (giu nguyen 100% chat luong & do phan giai goc)
 function Save-Base64ToUploads($b64String, $prefixId, $idx) {
     if (-not $b64String -or -not ($b64String -is [string])) { return "" }
-    if (-not $b64String.StartsWith("data:image/")) {
+    if (-not $b64String.StartsWith("data:image/") -and -not $b64String.StartsWith("data:video/")) {
         return $b64String # Neu da la duong dan file (uploads/...) thi giu nguyen
     }
 
@@ -137,8 +137,12 @@ function Save-Base64ToUploads($b64String, $prefixId, $idx) {
         if (-not $bytes -or $bytes.Length -lt 20) { return "" }
         
         $header = $b64String.Substring(0, $commaIdx)
-        $ext = "jpg"
-        if ($header -match 'image\/([a-zA-Z0-9\+\-]+)') {
+        $isVid = $b64String.StartsWith("data:video/")
+        $prefix = if ($isVid) { "vid" } else { "img" }
+        $ext = if ($isVid) { "mp4" } else { "jpg" }
+        if ($isVid) {
+            $ext = "mp4" # Luon luu video duoi dang MP4 de xem muot ma tren moi trinh duyet
+        } elseif ($header -match 'image\/([a-zA-Z0-9\+\-]+)') {
             $matchedExt = $matches[1].ToLower()
             if ($matchedExt -eq 'jpeg') { $ext = 'jpg' }
             elseif ($matchedExt -eq 'svg+xml') { $ext = 'svg' }
@@ -147,7 +151,7 @@ function Save-Base64ToUploads($b64String, $prefixId, $idx) {
 
         $safeId = [string]$prefixId -replace '[^a-zA-Z0-9_-]', ''
         if (-not $safeId) { $safeId = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
-        $fileName = "img_${safeId}_${idx}_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()).$ext"
+        $fileName = "${prefix}_${safeId}_${idx}_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()).$ext"
         $filePath = Join-Path $uploadsFolder $fileName
         
         [System.IO.File]::WriteAllBytes($filePath, $bytes)
